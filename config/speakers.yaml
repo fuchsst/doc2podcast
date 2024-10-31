@@ -1,0 +1,135 @@
+voices:
+  professional:
+    sarah_chen:
+      name: "Dr. Sarah Chen"
+      character_background:
+        profession: "AI Research Scientist"
+        expertise: 
+          - "Machine Learning"
+          - "Neural Networks"
+          - "Natural Language Processing"
+        personality:
+          - "analytical"
+          - "authoritative"
+          - "enthusiastic"
+        speaking_style: "Clear and precise with natural enthusiasm for complex topics"
+      
+      voice_profiles:
+        technical:
+          model: "F5-TTS"
+          reference_audio: "voices/sarah_chen/technical_explanation.wav"
+          reference_text: |
+            Let me explain how neural networks process information. 
+            At its core, a neural network is composed of layers of interconnected nodes, 
+            each performing specific mathematical operations on the input data.
+          style_tags:
+            - "clear"
+            - "authoritative"
+            - "precise"
+          voice_parameters:
+            pace: 1.0
+            pitch: 0.5
+            energy: 0.7
+            emotion: "professional"
+            variation: 0.1
+
+        enthusiastic:
+          model: "F5-TTS"
+          reference_audio: "voices/sarah_chen/enthusiastic_teaching.wav"
+          reference_text: |
+            This is absolutely fascinating! The way these models learn patterns 
+            in data is remarkable. Imagine each layer of the network gradually 
+            understanding more complex features - it's like watching a brain develop!
+          style_tags:
+            - "energetic"
+            - "engaging"
+            - "passionate"
+          voice_parameters:
+            pace: 1.2
+            pitch: 0.6
+            energy: 0.9
+            emotion: "enthusiastic"
+            variation: 0.2
+
+  casual:
+    alex_rivera:
+      name: "Alex Rivera"
+      character_background:
+        profession: "Tech Enthusiast & Podcaster"
+        expertise:
+          - "Technology Trends"
+          - "Consumer Tech"
+          - "Digital Culture"
+        personality:
+          - "curious"
+          - "energetic"
+          - "relatable"
+        speaking_style: "Engaging and conversational with natural curiosity"
+      
+      voice_profiles:
+        curious:
+          model: "E2-TTS"
+          reference_audio: "voices/alex_rivera/curious_questions.wav"
+          reference_text: |
+            That's really interesting! So, if I'm understanding correctly, 
+            these neural networks are kind of like building blocks that stack 
+            on top of each other? [thoughtful pause] I'm curious about how they 
+            actually learn though...
+          style_tags:
+            - "inquisitive"
+            - "thoughtful"
+            - "engaged"
+          voice_parameters:
+            pace: 1.0
+            energy: 0.8
+            variation: 0.2
+
+        excited:
+          model: "E2-TTS"
+          reference_audio: "voices/alex_rivera/excited_discovery.wav"
+          reference_text: |
+            Wow, that's mind-blowing! [excited] I never thought about it 
+            that way before. So you're telling me we can actually use this 
+            technology to [laughs] that's incredible!
+          style_tags:
+            - "enthusiastic"
+            - "amazed"
+            - "energetic"
+          voice_parameters:
+            pace: 1.2
+            energy: 0.9
+            variation: 0.3
+
+prompts:
+  interview:
+    technical_deep_dive:
+      name: "Technical Deep Dive Interview"
+      description: "A detailed technical discussion format focusing on in-depth understanding"
+      roles:
+        host:
+          voice: "sarah_chen.technical"
+          objective: "Guide technical discussion and ensure clarity"
+          style: "professional_expert"
+        guest:
+          voice: "alex_rivera.curious"
+          objective: "Ask insightful questions and seek clarification"
+          style: "curious_analyst"
+      
+      structure:
+        introduction:
+          template: |
+            Host: {introduction_hook}
+            Guest: {initial_curiosity}
+        
+        main_discussion:
+          segments:
+            - concept_introduction
+            - technical_details
+            - practical_application
+        
+        conclusion:
+          template: |
+            Guest: {summary_question}
+            Host: {comprehensive_summary}
+            Guest: {final_insight}
+            Host: {closing_remarks}

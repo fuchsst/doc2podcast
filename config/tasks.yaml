@@ -1,0 +1,93 @@
+tasks:
+  document_analysis:
+    description: >
+      Analyze the following document content and extract key insights:
+      {content}
+      
+      Focus on:
+      1. Main arguments and findings
+      2. Key methodology details
+      3. Important implications
+      4. Notable quotes or statistics
+      
+      Provide a structured analysis suitable for podcast adaptation.
+    expected_output: "Structured analysis with key points and insights"
+    agent: "document_processor"
+    parameters:
+      chunk_size: 1000
+      max_chars: 100000
+      overlap: 200
+    validation:
+      required_fields:
+        - processed_text
+        - metadata
+      output_format: "json"
+
+  content_generation:
+    description: >
+      Using the following research analysis, create a podcast script:
+      {analysis_result}
+      
+      Requirements:
+      1. Create a natural conversation between host and guest
+      2. Explain complex concepts clearly for a general audience
+      3. Include engaging examples and analogies
+      4. Maintain a logical flow of topics
+      5. Add appropriate transitions between segments
+      
+      Format as a dialogue with clear speaker indicators.
+    
+    expected_output: "Conversational podcast script"
+    agent: "script_writer"
+    parameters:
+      temperature: 0.7
+      top_p: 0.9
+      max_tokens: 8126
+    validation:
+      required_fields:
+        - initial_script
+        - tts_script
+      output_format: "json"
+
+  quality_control:
+    description: >
+      Review and optimize the following script:
+      {script}
+      
+      Check for:
+      1. Content accuracy and clarity
+      2. Natural conversation flow
+      3. Appropriate pacing and transitions
+      4. Technical accuracy
+      5. Audience engagement
+      
+      Provide specific improvements and corrections.
+    expected_output: "Improved script with quality assessment"
+    agent: "quality_checker"
+    parameters:
+      min_score: 0.8
+      check_points:
+        - content_accuracy
+        - conversation_flow
+        - voice_compatibility
+    validation:
+      required_fields:
+        - quality_score
+        - improvements
+      output_format: "json"
+
+  voice_synthesis:
+    description: "Generate audio from script"
+    expected_output: "High-quality podcast audio"
+    agent: "voice_synthesizer"
+    parameters:
+      sample_rate: 24000
+      audio_quality: "high"
+      formats:
+        - mp3
+        - wav
+    validation:
+      required_fields:
+        - audio_file
+        - metadata
+      output_format: "json"

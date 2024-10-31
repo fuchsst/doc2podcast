@@ -1,0 +1,209 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["voices", "prompts"],
+  "properties": {
+    "voices": {
+      "type": "object",
+      "required": ["professional", "casual"],
+      "properties": {
+        "professional": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/speaker"
+          }
+        },
+        "casual": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/speaker"
+          }
+        }
+      }
+    },
+    "prompts": {
+      "type": "object",
+      "required": ["interview"],
+      "properties": {
+        "interview": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/prompt_template"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "speaker": {
+      "type": "object",
+      "required": ["name", "character_background", "voice_profiles"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Speaker name"
+        },
+        "character_background": {
+          "type": "object",
+          "required": ["profession", "expertise", "personality", "speaking_style"],
+          "properties": {
+            "profession": {
+              "type": "string"
+            },
+            "expertise": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "personality": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "speaking_style": {
+              "type": "string"
+            }
+          }
+        },
+        "voice_profiles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["model", "style_tags", "voice_parameters"],
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "reference_audio": {
+                "type": "string"
+              },
+              "reference_text": {
+                "type": "string"
+              },
+              "style_tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "voice_parameters": {
+                "type": "object",
+                "properties": {
+                  "pace": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "pitch": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "energy": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "emotion": {
+                    "type": "string"
+                  },
+                  "variation": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "prompt_template": {
+      "type": "object",
+      "required": ["name", "description", "roles", "structure"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "roles": {
+          "type": "object",
+          "required": ["host", "guest"],
+          "properties": {
+            "host": {
+              "type": "object",
+              "required": ["voice", "objective", "style"],
+              "properties": {
+                "voice": {
+                  "type": "string"
+                },
+                "objective": {
+                  "type": "string"
+                },
+                "style": {
+                  "type": "string"
+                }
+              }
+            },
+            "guest": {
+              "type": "object",
+              "required": ["voice", "objective", "style"],
+              "properties": {
+                "voice": {
+                  "type": "string"
+                },
+                "objective": {
+                  "type": "string"
+                },
+                "style": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "structure": {
+          "type": "object",
+          "required": ["introduction", "main_discussion", "conclusion"],
+          "properties": {
+            "introduction": {
+              "type": "object",
+              "required": ["template"],
+              "properties": {
+                "template": {
+                  "type": "string"
+                }
+              }
+            },
+            "main_discussion": {
+              "type": "object",
+              "required": ["segments"],
+              "properties": {
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "conclusion": {
+              "type": "object",
+              "required": ["template"],
+              "properties": {
+                "template": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

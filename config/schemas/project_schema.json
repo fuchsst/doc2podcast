@@ -1,0 +1,212 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["name", "version", "description", "processing", "models", "output", "workflow"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Project name"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version number"
+    },
+    "description": {
+      "type": "string",
+      "description": "Project description"
+    },
+    "processing": {
+      "type": "object",
+      "required": ["chunk_size", "max_chars", "overlap"],
+      "properties": {
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 100,
+          "description": "Size of text chunks for processing"
+        },
+        "max_chars": {
+          "type": "integer",
+          "minimum": 1000,
+          "description": "Maximum characters to process"
+        },
+        "overlap": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Overlap between chunks"
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "required": ["text_generation", "voice_synthesis"],
+      "properties": {
+        "text_generation": {
+          "type": "object",
+          "required": ["default", "fallback", "temperature", "top_p", "max_new_tokens"],
+          "properties": {
+            "default": {
+              "type": "string",
+              "description": "Default text generation model"
+            },
+            "fallback": {
+              "type": "string",
+              "description": "Fallback text generation model"
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 2,
+              "description": "Generation temperature"
+            },
+            "top_p": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Top-p sampling parameter"
+            },
+            "max_new_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum new tokens to generate"
+            }
+          }
+        },
+        "voice_synthesis": {
+          "type": "object",
+          "required": ["primary", "secondary"],
+          "properties": {
+            "primary": {
+              "type": "object",
+              "required": ["name", "type", "sampling_rate"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Primary TTS model name"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["parler", "bark"],
+                  "description": "Type of TTS model"
+                },
+                "sampling_rate": {
+                  "type": "integer",
+                  "minimum": 8000,
+                  "description": "Audio sampling rate"
+                }
+              }
+            },
+            "secondary": {
+              "type": "object",
+              "required": ["name", "type", "sampling_rate"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Secondary TTS model name"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["parler", "bark"],
+                  "description": "Type of TTS model"
+                },
+                "sampling_rate": {
+                  "type": "integer",
+                  "minimum": 8000,
+                  "description": "Audio sampling rate"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": ["audio", "transcript", "script_dir", "audio_dir", "segments_dir"],
+      "properties": {
+        "audio": {
+          "type": "object",
+          "required": ["format", "bitrate", "parameters"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["mp3", "wav"],
+              "description": "Audio output format"
+            },
+            "bitrate": {
+              "type": "string",
+              "pattern": "^\\d+k$",
+              "description": "Audio bitrate"
+            },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Additional audio parameters"
+            }
+          }
+        },
+        "transcript": {
+          "type": "object",
+          "required": ["format", "include_timestamps", "include_speaker_labels"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["txt", "json"],
+              "description": "Transcript format"
+            },
+            "include_timestamps": {
+              "type": "boolean",
+              "description": "Include timestamps in transcript"
+            },
+            "include_speaker_labels": {
+              "type": "boolean",
+              "description": "Include speaker labels in transcript"
+            }
+          }
+        },
+        "script_dir": {
+          "type": "string",
+          "description": "Directory for generated scripts"
+        },
+        "audio_dir": {
+          "type": "string",
+          "description": "Directory for generated audio files"
+        },
+        "segments_dir": {
+          "type": "string",
+          "description": "Directory for audio segments"
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "enabled", "timeout"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Step name"
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Step enabled status"
+              },
+              "timeout": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Step timeout in seconds"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
