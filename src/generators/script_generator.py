@@ -282,7 +282,8 @@ class ScriptGenerator:
             )
             
             result = crew.kickoff()
-            return result if isinstance(result, str) else str(result)
+            # Explicitly convert CrewOutput to string
+            return str(result)
             
         except Exception as e:
             print(f"Error in generate_initial_script: {str(e)}")
@@ -314,7 +315,8 @@ class ScriptGenerator:
             )
             
             result = crew.kickoff()
-            return result if isinstance(result, str) else str(result)
+            # Explicitly convert CrewOutput to string
+            return str(result)
             
         except Exception as e:
             print(f"Error in rewrite_for_tts: {str(e)}")
@@ -396,7 +398,9 @@ class ScriptGenerator:
                         process=Process.sequential
                     )
                     
-                    results.append(crew.kickoff())
+                    # Explicitly convert CrewOutput to string before appending
+                    result = crew.kickoff()
+                    results.append(str(result))
                 except Exception as e:
                     print(f"Error processing chunk with CrewAI: {str(e)}")
                     if self.callback:

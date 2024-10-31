@@ -4,11 +4,14 @@ Convert documents into engaging podcasts using AI.
 
 ## Features
 
-- Convert PDF and DOCX documents into natural-sounding podcasts
-- AI-powered content analysis and script generation
+- Convert PDF documents into natural-sounding podcasts
+- AI-powered content analysis and script generation using Claude-3 and CrewAI
 - High-quality text-to-speech using F5-TTS and GLM-4-Voice
-- Interactive Streamlit interface
-- Efficient document processing and caching
+- Interactive Streamlit interface with step-by-step wizard
+- Efficient document processing with semantic chunking
+- Podcast library management
+- Voice profile customization
+- Progress tracking and error handling
 
 ## Installation
 
@@ -30,35 +33,18 @@ cp .env.example .env
 
 ## Usage
 
-Run the application using either:
-
+1. Start the application:
 ```bash
-# Using the installed command
-doc2podcast
-
-# Or using the run script
-python src/run.py
+streamlit run app.py
 ```
 
-The application will open in your default web browser. Then:
+2. Follow the wizard steps:
+   - Upload your PDF document
+   - Configure script generation settings
+   - Customize voice profiles
+   - Generate your podcast
 
-1. Upload your document (PDF or DOCX)
-2. Configure voice and style settings
-3. Generate your podcast
-
-## Project Structure
-
-```
-src/doc2podcast/
-├── config/           # Configuration management
-├── generators/       # Script and voice generation
-├── models/          # Data models
-├── processors/      # Document processing
-├── ui/              # Streamlit interface
-│   ├── components/  # Reusable UI components
-│   └── pages/       # Application pages
-└── utils/           # Utility functions
-```
+3. Access your podcasts in the Library section
 
 ## Development
 
@@ -77,6 +63,22 @@ pytest
 black src/ tests/
 isort src/ tests/
 ```
+
+## Current Status
+
+### Implemented Features
+- PDF document processing with semantic chunking
+- AI-powered script generation using Claude-3 and CrewAI
+- Basic voice synthesis with F5-TTS and GLM-4-Voice
+- Interactive Streamlit interface
+- Podcast library management
+- Progress tracking and error handling
+
+### In Progress
+- Enhanced voice profile system
+- Audio post-processing and enhancement
+- Advanced CrewAI agent coordination
+- Performance optimization
 
 ## License
 
