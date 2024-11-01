@@ -7,6 +7,8 @@ from collections import defaultdict
 from ..config.settings import Settings
 from .text_cleaner import TextCleaner
 from .chunk_manager import ChunkManager, Chunk
+from ..pipeline.analysis_agents import AnalysisAgents
+from ..utils.callback_handler import PipelineCallback
 
 class DocumentProcessor:
     def __init__(self, settings: Settings):
@@ -16,34 +18,81 @@ class DocumentProcessor:
         
     def process(
         self,
-        file_path: Path
+        file_path: Path,
+        analysis_agents: Optional[AnalysisAgents] = None,
+        callback: Optional[PipelineCallback] = None
     ) -> Dict[str, Any]:
         """Process document and prepare for script generation"""
         try:
             # Extract text and metadata
+            if callback:
+                callback.on_document_processing(10, "Extracting text from document...")
             text, metadata = self._extract_from_pdf(file_path)
             
             # Clean text
+            if callback:
+                callback.on_document_processing(20, "Cleaning text...")
             cleaned_text = self.text_cleaner.clean_text(text)
             
-            # Create chunks with specified size
+            # Create chunks
+            if callback:
+                callback.on_document_processing(30, "Creating document chunks...")
             chunks = self.chunk_manager.create_chunks(cleaned_text["text"])
             
             # Extract document structure
+            if callback:
+                callback.on_document_processing(40, "Analyzing document structure...")
             structure = self._analyze_document_structure(chunks)
             
-            # Optimize chunks based on content
+            # Optimize chunks
+            if callback:
+                callback.on_document_processing(50, "Optimizing chunks...")
             optimized_chunks = self.chunk_manager.optimize_chunks(chunks)
             
             # Group related chunks
+            if callback:
+                callback.on_document_processing(60, "Grouping related content...")
             chunk_groups = self._group_related_chunks(optimized_chunks)
             
-            return {
-                "title": metadata.get("title", file_path.stem),
+            # Perform detailed analysis if agents are provided
+            analysis_results = None
+            if analysis_agents:
+                if callback:
+                    callback.on_document_processing(70, "Starting detailed content analysis...")
+                    
+                # Analyze each chunk
+                chunk_results = []
+                total_chunks = len(optimized_chunks)
+                for i, chunk in enumerate(optimized_chunks):
+                    if callback:
+                        progress = 70 + (20 * (i / total_chunks))
+                        callback.on_document_processing(
+                            progress,
+                            f"Analyzing chunk {i+1} of {total_chunks}",
+                            substeps=[{
+                                "agent_role": "Content Analyst",
+                                "task_description": f"Processing chunk {i+1}/{total_chunks}"
+                            }]
+                        )
+                    result = analysis_agents.analyze_chunk(chunk.text)
+                    chunk_results.append(result)
+                
+                # Combine results
+                if callback:
+                    callback.on_document_processing(90, "Combining analysis results...")
+                analysis_results = analysis_agents.combine_results(chunk_results)
+                
+                if callback:
+                    callback.on_document_processing(95, "Finalizing analysis...")
+            
+            # Prepare final result
+            result = {
+                "title": analysis_results.get("title") if analysis_results else metadata.get("title", file_path.stem),
                 "text": cleaned_text["text"],
                 "chunks": [chunk.text for chunk in optimized_chunks],
                 "structure": structure,
                 "chunk_groups": chunk_groups,
+                "analysis": analysis_results,
                 "metadata": {
                     **metadata,
                     "references": cleaned_text.get("references", []),
@@ -53,7 +102,14 @@ class DocumentProcessor:
                 }
             }
             
+            if callback:
+                callback.on_document_processing(100, "Document processing complete")
+                
+            return result
+            
         except Exception as e:
+            if callback:
+                callback.on_error("DOCUMENT_PROCESSING", str(e))
             raise RuntimeError(f"Document processing error: {str(e)}")
             
     def _extract_from_pdf(self, file_path: Path) -> tuple[str, Dict[str, Any]]:

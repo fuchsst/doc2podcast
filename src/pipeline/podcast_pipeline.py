@@ -10,6 +10,7 @@ from src.generators.script_generator import ScriptGenerator
 from src.generators.voice_generator import VoiceGenerator
 from src.models.podcast_script import PodcastScript
 from src.processors.document_processor import DocumentProcessor
+from src.pipeline.analysis_agents import AnalysisAgents
 from src.utils.audio_utils import combine_audio_segments
 from src.utils.logging_utils import setup_logger
 from src.utils.cache_manager import cache_manager
@@ -43,6 +44,9 @@ class PodcastPipeline:
             api_key=settings.ANTHROPIC_API_KEY
         )
 
+        # Initialize analysis agents
+        self.analysis_agents = AnalysisAgents(self.llm)
+
         # Ensure output directories exist
         os.makedirs(settings.project_config.output.script_dir, exist_ok=True)
         os.makedirs(settings.project_config.output.audio_dir, exist_ok=True)
@@ -59,7 +63,7 @@ class PodcastPipeline:
             goal="Process and analyze document content effectively",
             backstory="Expert in document analysis and preprocessing",
             verbose=True,
-            allow_delegation=False,
+            allow_delegation=True,
             llm=self.llm,
             step_callback=self._on_doc_processing_step
         )
@@ -78,9 +82,18 @@ class PodcastPipeline:
     def _on_doc_processing_step(self, step_output: Dict[str, Any]):
         """Handle document processing step callback"""
         if self.callback:
+            # Update substeps for analysis tasks
+            substeps = []
+            if "agent_role" in step_output:
+                substeps.append({
+                    "agent_role": step_output["agent_role"],
+                    "task_description": step_output.get("task_description", "Processing...")
+                })
+            
             self.callback.on_document_processing(
                 progress=25,
-                message=step_output.get("task_description", "Processing document...")
+                message=step_output.get("task_description", "Processing document..."),
+                substeps=substeps
             )
 
     def _on_audio_processing_step(self, step_output: Dict[str, Any]):
@@ -123,9 +136,13 @@ class PodcastPipeline:
                 process=Process.sequential
             )
 
-            # Process document
+            # Process document with analysis agents
             path = Path(document_path)
-            content = self.document_processor.process(path)
+            content = self.document_processor.process(
+                path,
+                analysis_agents=self.analysis_agents,
+                callback=self.callback
+            )
 
             if self.callback:
                 self.callback.on_document_processing(100, "Document processing complete")
@@ -138,14 +155,25 @@ class PodcastPipeline:
                 self.callback.on_error(StepType.DOCUMENT_PROCESSING, str(e))
             raise
 
-    def generate_script(self, document_content: str) -> PodcastScript:
+    def generate_script(self, document_content: Dict[str, Any]) -> PodcastScript:
         """Generate script from processed document content."""
         try:
             logger.info("Generating script")
             if self.callback:
                 self.callback.on_script_generation(0, "Starting script generation...")
 
-            script = self.script_generator.generate_script(document_content)
+            # Use analysis results for better script generation
+            analysis = document_content.get("analysis", {})
+            enhanced_content = {
+                **document_content,
+                "title": analysis.get("title", document_content.get("title", "")),
+                "briefing": analysis.get("briefing", {}),
+                "topics": analysis.get("topics", {}),
+                "key_insights": analysis.get("key_insights", {}),
+                "questions": analysis.get("questions", {})
+            }
+
+            script = self.script_generator.generate_script(enhanced_content)
 
             if self.callback:
                 self.callback.on_script_generation(100, "Script generation complete")

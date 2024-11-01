@@ -23,7 +23,9 @@ def render_status(status, sidebar=True):
             
         # Show current step
         if status.get("current_step"):
-            st.markdown(f"**Step:** {status['current_step']}")
+            # Format step name for display
+            step_name = status["current_step"].replace("_", " ").title()
+            st.markdown(f"**Step:** {step_name}")
             
         # Show status message
         if status.get("message"):
@@ -50,7 +52,18 @@ def render_substeps(substeps):
         
     with st.session_state.substeps_container:
         st.markdown("### Current Substeps")
+        
+        # Group substeps by agent role
+        agent_tasks = {}
         for substep in substeps:
-            agent_role = substep.get("agent_role", "Unknown")
-            task_desc = substep.get("task_description", "")
-            st.markdown(f"- **{agent_role}**: {task_desc}")
+            role = substep.get("agent_role", "Unknown")
+            task = substep.get("task_description", "")
+            if role not in agent_tasks:
+                agent_tasks[role] = []
+            agent_tasks[role].append(task)
+            
+        # Display grouped tasks
+        for role, tasks in agent_tasks.items():
+            with st.expander(f"**{role}**", expanded=True):
+                for task in tasks:
+                    st.markdown(f"- {task}")

@@ -1,3 +1,4 @@
+"""Podcast creation wizard interface"""
 import streamlit as st
 from pathlib import Path
 import traceback
@@ -148,12 +149,69 @@ def document_upload_step():
                 
                 wizard_ui.show_error("Error processing document", error_details)
 
+def render_analysis_results(analysis_results):
+    """Render analysis results preview in main content area
+    
+    Args:
+        analysis_results (dict): Analysis results containing:
+            - title (str): Document title
+            - topics (dict): Extracted topics
+            - key_insights (dict): Key insights
+            - questions (dict): Analyzed questions
+    """
+    if not analysis_results:
+        return
+        
+    st.markdown("### Document Analysis Results")
+    
+    # Show title if available
+    if "title" in analysis_results:
+        st.markdown(f"**Generated Title:** {analysis_results['title']}")
+        
+    col1, col2 = st.columns(2)
+    
+    # Show topic preview
+    with col1:
+        if "topics" in analysis_results:
+            with st.expander("Topics", expanded=True):
+                topics = analysis_results["topics"]
+                if isinstance(topics, dict):
+                    for topic, details in topics.items():
+                        st.markdown(f"- {topic}")
+                        
+        # Show insights preview
+        if "key_insights" in analysis_results:
+            with st.expander("Key Insights", expanded=True):
+                insights = analysis_results["key_insights"]
+                if isinstance(insights, dict):
+                    for category, items in insights.items():
+                        st.markdown(f"**{category}**")
+                        if isinstance(items, list):
+                            for item in items:
+                                st.markdown(f"- {item}")
+    
+    # Show questions preview
+    with col2:
+        if "questions" in analysis_results:
+            with st.expander("Research Questions", expanded=True):
+                questions = analysis_results["questions"]
+                if isinstance(questions, dict):
+                    for q_type, q_list in questions.items():
+                        st.markdown(f"**{q_type}**")
+                        if isinstance(q_list, list):
+                            for q in q_list:
+                                st.markdown(f"- {q}")
+
 def script_generation_step():
     """Step 2: Script Generation with Presets"""
 
     if not st.session_state.processed_content:
         st.warning("Please upload and process a document first")
         return
+
+    # Show analysis results if available
+    if "analysis" in st.session_state.processed_content:
+        render_analysis_results(st.session_state.processed_content["analysis"])
 
     prompt_manager = PromptManager(settings=Settings())
     
