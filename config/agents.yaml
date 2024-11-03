@@ -5,9 +5,14 @@ agents:
     goal: "Convert raw documents into clean, structured text"
     backstory: "Expert in document analysis and text processing"
     tools:
-      - pdf_extractor
-      - text_cleaner
-      - metadata_analyzer
+      pdf_extractor:
+        chunk_size: 32768
+        overlap: 512
+      text_cleaner:
+        preserve_references: true
+      metadata_analyzer:
+        extract_toc: true
+        extract_references: true
     allow_delegation: false
     verbose: true
 
@@ -17,9 +22,16 @@ agents:
     goal: "Transform processed content into natural conversations"
     backstory: "Award-winning podcast writer with expertise in multiple formats"
     tools:
-      - content_generator
-      - dialogue_enhancer
-      - script_optimizer
+      content_generator:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 8126
+      dialogue_enhancer:
+        style: "conversational"
+        tone: "engaging"
+      script_optimizer:
+        max_segment_length: 300
+        min_segment_length: 50
     allow_delegation: false
     verbose: true
 
@@ -29,9 +41,15 @@ agents:
     goal: "Ensure high-quality, accurate, and engaging content"
     backstory: "Experienced content editor with attention to detail"
     tools:
-      - content_validator
-      - quality_scorer
-      - improvement_suggester
+      content_validator:
+        min_score: 0.8
+        check_points: ["accuracy", "clarity", "engagement"]
+      quality_scorer:
+        metrics: ["readability", "coherence", "engagement"]
+        weights: {"readability": 0.4, "coherence": 0.3, "engagement": 0.3}
+      improvement_suggester:
+        max_suggestions: 5
+        priority_threshold: 0.7
     allow_delegation: false
     verbose: true
 
@@ -41,8 +59,15 @@ agents:
     goal: "Create high-quality podcast audio from scripts"
     backstory: "Expert in voice synthesis and audio processing"
     tools:
-      - tts_generator
-      - audio_enhancer
-      - format_converter
+      tts_generator:
+        sampling_rate: 24000
+        audio_quality: "high"
+        formats: ["mp3", "wav"]
+      audio_enhancer:
+        normalize_audio: true
+        remove_noise: true
+      format_converter:
+        target_format: "mp3"
+        target_bitrate: "192k"
     allow_delegation: false
     verbose: true

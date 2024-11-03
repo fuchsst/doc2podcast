@@ -1,349 +1,682 @@
-"""Custom tools for document analysis tasks combining algorithms with LLM reasoning"""
+"""Analysis tools implementing SOLID principles"""
 
-from typing import List, Dict, Any
-from crewai_tools import BaseTool
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import LatentDirichletAllocation
+import re
+from typing import Dict, Any, List, Optional
 import numpy as np
 import json
 import nltk
-from nltk.tokenize import sent_tokenize
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
+from pydantic import ConfigDict
 
-# Download required NLTK data
+from .base import AnalysisTool, AnalysisContext
+from .config import AnalysisConfig
+from .schemas import (
+    TopicAnalysisSchema,
+    InsightAnalysisSchema,
+    QuestionAnalysisSchema
+)
+from .prompts import PromptTemplates
+
+# Initialize NLTK components
 try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+    nltk.download('punkt', quiet=True)
+    nltk.download('averaged_perceptron_tagger', quiet=True)
+    nltk.download('maxent_ne_chunker', quiet=True)
+    nltk.download('words', quiet=True)
+except:
+    pass
 
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt_tab')
-
-class EnhancedAnalysisTool(BaseTool):
-    """Base class for enhanced analysis tools combining algorithms with LLM"""
+class TextAnalyzer:
+    """Base text analysis functionality"""
     
-    def __init__(self, llm):
-        super().__init__()
-        self._llm = llm
-        
-    def _enhance_with_llm(self, algorithmic_results: Dict, prompt: str) -> Dict:
-        """Enhance algorithmic results with LLM reasoning"""
+    @staticmethod
+    def extract_named_entities(text: str) -> Dict[str, List[Dict]]:
+        """Extract and categorize named entities"""
         try:
-            # Prepare input for LLM
-            llm_input = {
-                "algorithmic_results": algorithmic_results,
-                "task": prompt
+            tokens = nltk.word_tokenize(text)
+            pos_tags = nltk.pos_tag(tokens)
+            chunks = nltk.ne_chunk(pos_tags)
+            
+            entities = {
+                "PERSON": [],
+                "ORGANIZATION": [],
+                "GPE": [],
+                "OTHER": []
             }
             
-            # Format message for the LLM
-            messages = [
-                {
-                    "role": "system",
-                    "content": "You are an expert analyst. Analyze the algorithmic results and provide structured insights."
-                },
-                {
-                    "role": "user",
-                    "content": f"""
-                    Analyze and enhance these algorithmic results:
-                    {json.dumps(llm_input, indent=2)}
-                    
-                    {prompt}
-                    
-                    Return your analysis in valid JSON format.
-                    """
-                }
-            ]
-            
-            # Get LLM response using the call method
-            response = self._llm.call(messages)
-            
-            # Parse LLM response
-            return json.loads(response)
+            for chunk in chunks:
+                if hasattr(chunk, 'label'):
+                    entity_text = ' '.join(c[0] for c in chunk.leaves())
+                    context = TextAnalyzer.get_entity_context(entity_text, text)
+                    entity_info = {
+                        "text": entity_text,
+                        "context": context,
+                        "frequency": text.lower().count(entity_text.lower())
+                    }
+                    if chunk.label() in entities:
+                        entities[chunk.label()].append(entity_info)
+                    else:
+                        entities["OTHER"].append(entity_info)
+                        
+            return entities
             
         except Exception as e:
-            return {
-                "error": f"LLM enhancement failed: {str(e)}",
-                "original_results": algorithmic_results
-            }
-
-class TopicAnalysisTool(EnhancedAnalysisTool):
-    """Tool combining TF-IDF, LDA, and LLM for sophisticated topic analysis"""
-    name: str = "Topic Analysis"
-    description: str = """Performs comprehensive topic analysis using TF-IDF, LDA, and LLM reasoning.
-    Returns structured topic hierarchy with relationships and context."""
+            return {"error": str(e)}
     
-    def _run(self, text: str) -> str:
-        # Parse input JSON if needed
-        if isinstance(text, str) and text.startswith('{'):
-            try:
-                data = json.loads(text)
-                text = data.get('text', text)
-            except json.JSONDecodeError:
-                pass
+    @staticmethod
+    def get_entity_context(entity: str, text: str, window: int = 2) -> List[str]:
+        """Get context for named entities"""
+        sentences = nltk.sent_tokenize(text)
+        context = []
+        
+        for sentence in sentences:
+            if entity.lower() in sentence.lower():
+                context.append(sentence)
                 
-        # TF-IDF Analysis
+        return context[:window]
+    
+    @staticmethod
+    def extract_noun_phrases(text: str) -> List[str]:
+        """Extract noun phrases from text"""
+        try:
+            tokens = nltk.word_tokenize(text)
+            pos_tags = nltk.pos_tag(tokens)
+            
+            phrases = []
+            current_phrase = []
+            
+            for word, tag in pos_tags:
+                if tag.startswith('NN'):
+                    current_phrase.append(word)
+                elif current_phrase:
+                    phrases.append(' '.join(current_phrase))
+                    current_phrase = []
+                    
+            if current_phrase:
+                phrases.append(' '.join(current_phrase))
+                
+            return phrases
+            
+        except Exception:
+            return []
+
+class TopicAnalysisTool(AnalysisTool):
+    """Tool for comprehensive topic analysis"""
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    config: Optional[AnalysisConfig] = None
+    text_analyzer: TextAnalyzer = None
+    
+    def __init__(self, llm, config: Optional[AnalysisConfig] = None):
+        super().__init__(
+            name="Topic Analysis Tool",
+            description="""Analyzes document topics and themes.
+            
+            Args:
+                text (str): The document content to analyze. Must be a non-empty string containing at least one paragraph.
+            
+            Returns:
+                str: A JSON string containing:
+                {
+                    "main_topics": [{"name": str, "description": str, "subtopics": [str], "significance": str}],
+                    "topic_hierarchy": {"levels": [str], "relationships": [str]},
+                    "named_entities": {"PERSON": [str], "ORGANIZATION": [str], "GPE": [str]},
+                    "key_terms": [{"term": str, "context": str, "importance": float}]
+                }
+            
+            Use this tool when you need to:
+            - Understand the main themes and topics in a document
+            - Find relationships between different topics
+            - Identify key terms and their context
+            - Extract named entities and their roles
+            
+            Do not use this tool for:
+            - Analyzing very short texts (less than a paragraph)
+            - Code or structured data analysis
+            - Real-time text processing"""
+        )
+        self._llm = llm
+        self.config = config or AnalysisConfig(chunk_size=512)
+        self.text_analyzer = TextAnalyzer()
+        
+    @property
+    def llm(self):
+        return self._llm
+        
+    def analyze(self, text: str) -> Dict[str, Any]:
+        """Analyze topics in text"""
+        # Create document chunks
+        doc = Document(text=text)
+        parser = SentenceSplitter(chunk_size=self.config.chunk_size)
+        nodes = parser.get_nodes_from_documents([doc])
+        texts = [node.text for node in nodes]
+        
+        # Perform TF-IDF analysis
+        tfidf_results = self._analyze_tfidf(texts)
+        
+        # Perform topic modeling
+        topic_results = self._analyze_topics(tfidf_results["tfidf_matrix"], tfidf_results["feature_names"])
+        
+        # Extract named entities
+        entities = self.text_analyzer.extract_named_entities(text)
+        
+        return {
+            "tfidf_analysis": tfidf_results["terms"],
+            "topic_modeling": topic_results,
+            "named_entities": entities
+        }
+        
+    def enhance_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance results with LLM analysis"""
+        prompt = PromptTemplates.get_topic_analysis_prompt({"results": results})
+        messages = [{"role": "user", "content": prompt}]
+        
+        try:
+            response = self.llm.call(messages)
+            enhanced = json.loads(response)
+            return TopicAnalysisSchema(**enhanced)
+        except Exception as e:
+            return {
+                "error": f"Failed to enhance results: {str(e)}",
+                "original_results": results
+            }
+            
+    def _analyze_tfidf(self, texts: List[str]) -> Dict[str, Any]:
+        """Perform TF-IDF analysis"""
         vectorizer = TfidfVectorizer(
-            max_features=100,
+            max_features=self.config.max_features,
             stop_words='english',
             ngram_range=(1, 2)
         )
-        tfidf_matrix = vectorizer.fit_transform([text])
+        tfidf_matrix = vectorizer.fit_transform(texts)
         feature_names = vectorizer.get_feature_names_out()
-        tfidf_scores = tfidf_matrix.toarray()[0]
         
-        # LDA Topic Modeling
+        return {
+            "tfidf_matrix": tfidf_matrix,
+            "feature_names": feature_names,
+            "terms": [
+                {
+                    "term": term,
+                    "score": float(score),
+                    "context": self._get_term_context(term, texts)
+                }
+                for term, score in sorted(
+                    zip(feature_names, tfidf_matrix.toarray()[0]),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:20]
+            ]
+        }
+        
+    def _analyze_topics(self, tfidf_matrix: Any, feature_names: List[str]) -> Dict[str, Any]:
+        """Perform topic modeling"""
         lda = LatentDirichletAllocation(
-            n_components=3,
+            n_components=self.config.num_topics,
             random_state=42
         )
         lda_output = lda.fit_transform(tfidf_matrix)
         
-        # Combine algorithmic results
-        algorithmic_results = {
-            "tfidf_terms": [
-                {"term": term, "score": float(score)}
-                for term, score in sorted(
-                    zip(feature_names, tfidf_scores),
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:20]
-            ],
+        return {
             "topics": [
                 {
                     "id": topic_idx,
                     "terms": [
                         {
-                            "term": feature_names[i],
+                            "term": term,
                             "weight": float(score)
                         }
-                        for i, score in sorted(
-                            enumerate(topic),
-                            key=lambda x: x[1],
-                            reverse=True
-                        )[:10]
+                        for term, score in self._get_topic_terms(topic, feature_names)
                     ],
                     "weight": float(lda_output[0][topic_idx])
                 }
                 for topic_idx, topic in enumerate(lda.components_)
+            ],
+            "document_topics": [
+                {
+                    "node_idx": idx,
+                    "topic_weights": [float(weight) for weight in weights]
+                }
+                for idx, weights in enumerate(lda_output)
             ]
         }
         
-        # Enhance with LLM
-        enhanced_results = self._enhance_with_llm(
-            algorithmic_results,
-            """
-            Analyze these algorithmic topic analysis results and:
-            1. Create a hierarchical topic structure
-            2. Identify relationships between topics
-            3. Provide context and significance for each topic
-            4. Suggest potential subtopics
-            5. Return a comprehensive topic analysis in this JSON structure:
-            {
-                "main_topics": [
-                    {
-                        "name": "topic name",
-                        "description": "topic description",
-                        "significance": "topic significance",
-                        "subtopics": ["subtopic1", "subtopic2"],
-                        "related_topics": ["related1", "related2"],
-                        "key_terms": ["term1", "term2"]
-                    }
-                ],
-                "topic_relationships": [
-                    {
-                        "from": "topic1",
-                        "to": "topic2",
-                        "relationship": "relationship description"
-                    }
-                ]
-            }
-            """
-        )
+    def _get_term_context(self, term: str, texts: List[str]) -> List[Dict]:
+        """Get context for a term"""
+        context = []
+        for text in texts:
+            if term.lower() in text.lower():
+                sentences = nltk.sent_tokenize(text)
+                for sentence in sentences:
+                    if term.lower() in sentence.lower():
+                        context.append({
+                            "text": sentence,
+                            "position": text.index(sentence)
+                        })
+        return context[:3]
         
-        return json.dumps(enhanced_results)
+    def _get_topic_terms(self, topic: np.ndarray, feature_names: List[str]) -> List[tuple]:
+        """Get terms for a topic"""
+        return sorted(
+            zip(feature_names, topic),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
 
-class InsightAnalysisTool(EnhancedAnalysisTool):
-    """Tool combining sentence importance scoring with LLM for insight extraction"""
-    name: str = "Insight Analysis"
-    description: str = """Extracts and analyzes insights using sentence importance scoring and LLM reasoning.
-    Returns structured insights with context and relationships."""
+class InsightAnalysisTool(AnalysisTool):
+    """Tool for extracting and analyzing insights"""
     
-    def _run(self, text: str) -> str:
-        # Parse input JSON if needed
-        if isinstance(text, str) and text.startswith('{'):
-            try:
-                data = json.loads(text)
-                text = data.get('text', text)
-            except json.JSONDecodeError:
-                pass
-                
-        # Split into sentences
-        sentences = sent_tokenize(text)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    config: Optional[AnalysisConfig] = None
+    text_analyzer: TextAnalyzer = None
+    
+    def __init__(self, llm, config: Optional[AnalysisConfig] = None):
+        super().__init__(
+            name="Insight Analysis Tool",
+            description="""Extracts and analyzes key insights from documents.
+            
+            Args:
+                text (str): The document content to analyze. Can be any type of document.
+            
+            Returns:
+                str: A JSON string containing:
+                {
+                    "approaches": {
+                        "main_approaches": [{"name": str, "description": str, "context": str}],
+                        "implementation": [{"technique": str, "description": str, "key_points": [str]}]
+                    },
+                    "key_points": [{"description": str, "support": str, "importance": str}],
+                    "notable_elements": [{"description": str, "uniqueness": str, "applications": [str]}]
+                }
+            
+            Use this tool when you need to:
+            - Extract key insights and approaches
+            - Understand implementation details
+            - Find notable elements and features
+            - Analyze practical applications
+            
+            Do not use this tool for:
+            - Basic text summarization
+            - Opinion or sentiment analysis
+            - Simple text queries"""
+        )
+        self._llm = llm
+        self.config = config or AnalysisConfig(chunk_size=512)
+        self.text_analyzer = TextAnalyzer()
         
-        # Score sentences using TF-IDF
+    @property
+    def llm(self):
+        return self._llm
+        
+    def analyze(self, text: str) -> Dict[str, Any]:
+        """Analyze insights in text"""
+        # Create document chunks
+        doc = Document(text=text)
+        parser = SentenceSplitter(chunk_size=self.config.chunk_size)
+        nodes = parser.get_nodes_from_documents([doc])
+        
+        # Extract sentences
+        sentences = []
+        for node in nodes:
+            sentences.extend(nltk.sent_tokenize(node.text))
+            
+        # Score sentences
+        sentence_scores = self._score_sentences(sentences)
+        
+        # Extract insights
+        return {
+            "approaches": {
+                "main_approaches": self._extract_approaches(sentences),
+                "implementation": self._extract_implementation(sentences)
+            },
+            "key_points": self._extract_key_points(sentences, sentence_scores),
+            "notable_elements": self._extract_notable_elements(sentences, sentence_scores)
+        }
+        
+    def enhance_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance results with LLM analysis"""
+        prompt = PromptTemplates.get_insight_analysis_prompt({"results": results})
+        messages = [{"role": "user", "content": prompt}]
+        
+        try:
+            response = self.llm.call(messages)
+            enhanced = json.loads(response)
+            return InsightAnalysisSchema(**enhanced)
+        except Exception as e:
+            return {
+                "error": f"Failed to enhance results: {str(e)}",
+                "original_results": results
+            }
+            
+    def _score_sentences(self, sentences: List[str]) -> np.ndarray:
+        """Score sentences using TF-IDF"""
         vectorizer = TfidfVectorizer(stop_words='english')
         tfidf_matrix = vectorizer.fit_transform(sentences)
-        importance_scores = tfidf_matrix.toarray().sum(axis=1)
+        return tfidf_matrix.toarray().sum(axis=1)
         
-        # Initial classification
-        algorithmic_results = {
-            "sentences": [
-                {
-                    "text": sent,
-                    "importance_score": float(score),
-                    "potential_type": self._classify_sentence(sent)
-                }
-                for sent, score in zip(sentences, importance_scores)
-            ]
-        }
+    def _extract_approaches(self, sentences: List[str]) -> List[Dict]:
+        """Extract approach information"""
+        approaches = []
+        patterns = [
+            r'(?:use|using|utilize|utilizing|implement|implementing)',
+            r'(?:approach|technique|method|strategy|solution|tool)',
+            r'(?:create|build|develop|design|structure)'
+        ]
         
-        # Enhance with LLM
-        enhanced_results = self._enhance_with_llm(
-            algorithmic_results,
-            """
-            Analyze these sentence-level results and:
-            1. Identify key research insights
-            2. Extract methodological approaches
-            3. Highlight significant findings
-            4. Note novel contributions
-            5. Suggest future directions
-            6. Return a comprehensive analysis in this JSON structure:
-            {
-                "methodology": {
-                    "approaches": [
-                        {
-                            "description": "approach description",
-                            "significance": "why this is important",
-                            "context": "how it was used"
-                        }
-                    ]
-                },
-                "findings": [
-                    {
-                        "finding": "description of finding",
-                        "evidence": "supporting evidence",
-                        "implications": "what this means"
-                    }
-                ],
-                "contributions": [
-                    {
-                        "contribution": "description",
-                        "novelty": "what makes it novel",
-                        "impact": "potential impact"
-                    }
-                ],
-                "future_directions": [
-                    {
-                        "direction": "description",
-                        "rationale": "why this direction",
-                        "potential": "expected outcomes"
-                    }
-                ]
-            }
-            """
-        )
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    approaches.append({
+                        "text": sentence,
+                        "type": "approach",
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return approaches
         
-        return json.dumps(enhanced_results)
+    def _extract_implementation(self, sentences: List[str]) -> List[Dict]:
+        """Extract implementation details"""
+        implementations = []
+        patterns = [
+            r'(?:implement|configure|setup|install|initialize)',
+            r'(?:step|process|procedure|workflow|sequence)',
+            r'(?:require|need|must|should|can)'
+        ]
         
-    def _classify_sentence(self, sentence: str) -> str:
-        """Basic sentence classification"""
-        sent_lower = sentence.lower()
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    implementations.append({
+                        "text": sentence,
+                        "type": "implementation",
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return implementations
         
-        if any(kw in sent_lower for kw in ["method", "approach", "technique"]):
-            return "methodology"
-        elif any(kw in sent_lower for kw in ["found", "result", "show"]):
-            return "finding"
-        elif any(kw in sent_lower for kw in ["contribute", "improve", "novel"]):
-            return "contribution"
-        elif any(kw in sent_lower for kw in ["future", "could", "would"]):
-            return "future_work"
-        else:
-            return "other"
-
-class QuestionAnalysisTool(EnhancedAnalysisTool):
-    """Tool combining question extraction with LLM for comprehensive question analysis"""
-    name: str = "Question Analysis"
-    description: str = """Analyzes research questions using pattern matching and LLM reasoning.
-    Returns structured question analysis with context and relationships."""
-    
-    def _run(self, text: str) -> str:
-        # Parse input JSON if needed
-        if isinstance(text, str) and text.startswith('{'):
-            try:
-                data = json.loads(text)
-                text = data.get('text', text)
-            except json.JSONDecodeError:
-                pass
+    def _extract_key_points(
+        self,
+        sentences: List[str],
+        importance_scores: np.ndarray
+    ) -> List[Dict]:
+        """Extract key points"""
+        points = []
+        patterns = [
+            r'(?:important|key|crucial|essential|significant)',
+            r'(?:note|remember|consider|ensure|make sure)',
+            r'(?:feature|functionality|capability|option)'
+        ]
+        
+        for sentence, score in zip(sentences, importance_scores):
+            if score < self.config.min_importance:
+                continue
                 
-        # Extract sentences
-        sentences = sent_tokenize(text)
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    points.append({
+                        "text": sentence,
+                        "importance_score": float(score),
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return sorted(points, key=lambda x: x["importance_score"], reverse=True)
         
-        # Initial classification
-        algorithmic_results = {
-            "extracted_questions": {
-                "explicit": [
-                    sent for sent in sentences if '?' in sent
-                ],
-                "implicit": [
-                    sent for sent in sentences
-                    if any(kw in sent.lower() for kw in [
-                        "investigate", "examine", "explore", "study",
-                        "analyze", "determine", "assess", "evaluate"
-                    ])
-                ],
-                "hypotheses": [
-                    sent for sent in sentences
-                    if any(kw in sent.lower() for kw in [
-                        "hypothes", "predict", "expect", "assume"
-                    ])
-                ]
-            }
+    def _extract_notable_elements(
+        self,
+        sentences: List[str],
+        importance_scores: np.ndarray
+    ) -> List[Dict]:
+        """Extract notable elements"""
+        elements = []
+        patterns = [
+            r'(?:unique|special|specific|custom|advanced)',
+            r'(?:feature|element|component|aspect|part)',
+            r'(?:advantage|benefit|improvement|enhancement)'
+        ]
+        
+        for sentence, score in zip(sentences, importance_scores):
+            if score < self.config.min_importance:
+                continue
+                
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    elements.append({
+                        "text": sentence,
+                        "importance_score": float(score),
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return sorted(elements, key=lambda x: x["importance_score"], reverse=True)
+        
+    def _get_sentence_context(
+        self,
+        sentence: str,
+        sentences: List[str]
+    ) -> List[str]:
+        """Get context for a sentence"""
+        try:
+            idx = sentences.index(sentence)
+            start = max(0, idx - self.config.context_window)
+            end = min(len(sentences), idx + self.config.context_window + 1)
+            return sentences[start:end]
+        except ValueError:
+            return [sentence]
+
+class ObjectiveAnalysisTool(AnalysisTool):
+    """Tool for analyzing document objectives and goals"""
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    config: Optional[AnalysisConfig] = None
+    text_analyzer: TextAnalyzer = None
+    
+    def __init__(self, llm, config: Optional[AnalysisConfig] = None):
+        super().__init__(
+            name="Objective Analysis Tool",
+            description="""Analyzes document objectives and learning goals.
+            
+            Args:
+                text (str): The document content to analyze. Can be any type of document.
+            
+            Returns:
+                str: A JSON string containing:
+                {
+                    "main_objectives": {"primary": [{"objective": str, "type": str}], "secondary": [{"objective": str}]},
+                    "key_considerations": [{"point": str, "factors": {"technical": [str], "practical": [str]}}],
+                    "learning_goals": [{"goal": str, "type": str, "success_criteria": [str]}],
+                    "next_steps": [{"step": str, "rationale": str}]
+                }
+            
+            Use this tool when you need to:
+            - Identify main objectives and goals
+            - Extract key considerations
+            - Understand learning outcomes
+            - Find implementation steps
+            
+            Do not use this tool for:
+            - General question answering
+            - FAQ generation
+            - Simple text queries"""
+        )
+        self._llm = llm
+        self.config = config or AnalysisConfig(chunk_size=512)
+        self.text_analyzer = TextAnalyzer()
+        
+    @property
+    def llm(self):
+        return self._llm
+        
+    def analyze(self, text: str) -> Dict[str, Any]:
+        """Analyze objectives in text"""
+        # Create document chunks
+        doc = Document(text=text)
+        parser = SentenceSplitter(chunk_size=self.config.chunk_size)
+        nodes = parser.get_nodes_from_documents([doc])
+        
+        # Extract sentences
+        sentences = []
+        for node in nodes:
+            sentences.extend(nltk.sent_tokenize(node.text))
+            
+        return {
+            "main_objectives": {
+                "primary": self._extract_primary_objectives(sentences),
+                "secondary": self._extract_secondary_objectives(sentences)
+            },
+            "key_considerations": self._extract_considerations(sentences),
+            "learning_goals": self._extract_learning_goals(sentences),
+            "next_steps": self._extract_next_steps(sentences)
         }
         
-        # Enhance with LLM
-        enhanced_results = self._enhance_with_llm(
-            algorithmic_results,
-            """
-            Analyze these extracted questions and:
-            1. Identify primary and secondary research questions
-            2. Analyze hypotheses and their relationships
-            3. Generate relevant follow-up questions
-            4. Map questions to potential answers
-            5. Return a comprehensive analysis in this JSON structure:
-            {
-                "research_questions": {
-                    "primary": [
-                        {
-                            "question": "the question",
-                            "focus": "what it addresses",
-                            "significance": "why it matters"
-                        }
-                    ],
-                    "secondary": [
-                        {
-                            "question": "the question",
-                            "relationship": "how it relates to primary",
-                            "contribution": "what it adds"
-                        }
-                    ]
-                },
-                "hypotheses": [
-                    {
-                        "hypothesis": "the hypothesis",
-                        "related_question": "which question it addresses",
-                        "testability": "how it can be tested"
-                    }
-                ],
-                "follow_up_questions": [
-                    {
-                        "question": "the question",
-                        "rationale": "why this is important",
-                        "potential_impact": "what it could reveal"
-                    }
-                ]
-            }
-            """
-        )
+    def enhance_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance results with LLM analysis"""
+        prompt = PromptTemplates.get_question_analysis_prompt({"results": results})
+        messages = [{"role": "user", "content": prompt}]
         
-        return json.dumps(enhanced_results)
+        try:
+            response = self.llm.call(messages)
+            enhanced = json.loads(response)
+            return QuestionAnalysisSchema(**enhanced)
+        except Exception as e:
+            return {
+                "error": f"Failed to enhance results: {str(e)}",
+                "original_results": results
+            }
+            
+    def _extract_primary_objectives(self, sentences: List[str]) -> List[Dict]:
+        """Extract primary objectives"""
+        objectives = []
+        patterns = [
+            r'(?:main|primary|key|core) (?:goal|objective|purpose|aim)',
+            r'(?:this|the) (?:guide|tutorial|document) (?:will|shows|demonstrates)',
+            r'(?:learn|understand|master|grasp) how to'
+        ]
+        
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    objectives.append({
+                        "text": sentence,
+                        "type": "primary",
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return objectives
+        
+    def _extract_secondary_objectives(self, sentences: List[str]) -> List[Dict]:
+        """Extract secondary objectives"""
+        objectives = []
+        patterns = [
+            r'(?:also|additionally|furthermore) (?:learn|understand|see)',
+            r'(?:other|additional|more) (?:features|aspects|topics)',
+            r'(?:explore|discover|examine) how'
+        ]
+        
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    objectives.append({
+                        "text": sentence,
+                        "type": "secondary",
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return objectives
+        
+    def _extract_considerations(self, sentences: List[str]) -> List[Dict]:
+        """Extract key considerations"""
+        considerations = []
+        patterns = [
+            r'(?:consider|note|remember|keep in mind)',
+            r'(?:important|crucial|essential) to',
+            r'(?:requirement|prerequisite|dependency)'
+        ]
+        
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    considerations.append({
+                        "text": sentence,
+                        "type": "consideration",
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return considerations
+        
+    def _extract_learning_goals(self, sentences: List[str]) -> List[Dict]:
+        """Extract learning goals"""
+        goals = []
+        patterns = [
+            r'(?:by|after) (?:the end|completing|finishing)',
+            r'(?:will|should) (?:be able to|understand|know)',
+            r'(?:learn|master|grasp) (?:how|about|why)'
+        ]
+        
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    goals.append({
+                        "text": sentence,
+                        "type": self._classify_goal(sentence),
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return goals
+        
+    def _extract_next_steps(self, sentences: List[str]) -> List[Dict]:
+        """Extract next steps"""
+        steps = []
+        patterns = [
+            r'(?:next|following|subsequent) (?:step|stage|phase)',
+            r'(?:then|after that|once|when) you',
+            r'(?:finally|lastly|in conclusion)'
+        ]
+        
+        for sentence in sentences:
+            for pattern in patterns:
+                if re.search(pattern, sentence, re.I):
+                    steps.append({
+                        "text": sentence,
+                        "type": "next_step",
+                        "context": self._get_sentence_context(sentence, sentences)
+                    })
+                    break
+                    
+        return steps
+        
+    def _classify_goal(self, text: str) -> str:
+        """Classify goal type"""
+        if re.search(r'(?:understand|comprehend|grasp|know)', text, re.I):
+            return "conceptual"
+        elif re.search(r'(?:implement|create|build|develop|code)', text, re.I):
+            return "practical"
+        elif re.search(r'(?:configure|setup|install|deploy)', text, re.I):
+            return "technical"
+        else:
+            return "general"
+            
+    def _get_sentence_context(
+        self,
+        sentence: str,
+        sentences: List[str]
+    ) -> List[str]:
+        """Get context for a sentence"""
+        try:
+            idx = sentences.index(sentence)
+            start = max(0, idx - self.config.context_window)
+            end = min(len(sentences), idx + self.config.context_window + 1)
+            return sentences[start:end]
+        except ValueError:
+            return [sentence]

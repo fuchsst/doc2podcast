@@ -1,12 +1,16 @@
-"""Manage text chunking for optimal processing"""
+"""Manage text chunking for optimal processing using LlamaIndex"""
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import numpy as np
 from dataclasses import dataclass
 import logging
 import re
 from nltk.tokenize import sent_tokenize
 import nltk
+import json
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import TextNode, NodeRelationship, RelatedNodeInfo
 
 from ..config.settings import Settings
 
@@ -22,93 +26,155 @@ class Chunk:
     metadata: Dict = None
     importance_score: float = 0.0
     topics: List[str] = None
+    relationships: List[Dict] = None  # Store relationships with other chunks
+
+    def __post_init__(self):
+        """Initialize after creation"""
+        if self.topics is not None and not isinstance(self.topics, set):
+            self.topics = set(self.topics)
+        if self.relationships is None:
+            self.relationships = []
+        if self.metadata is None:
+            self.metadata = {}
+        if self.references is None:
+            self.references = {}
+
+    def to_json(self) -> str:
+        """Convert chunk to JSON string"""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'Chunk':
+        """Create chunk from JSON string"""
+        data = json.loads(json_str)
+        return cls.from_dict(data)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert chunk to dictionary"""
+        return {
+            "text": self.text,
+            "start_idx": self.start_idx,
+            "end_idx": self.end_idx,
+            "references": self.references,
+            "metadata": self.metadata,
+            "importance_score": float(self.importance_score) if isinstance(self.importance_score, np.float32) else self.importance_score,
+            "topics": list(self.topics) if self.topics is not None else None,
+            "relationships": self.relationships
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Chunk':
+        """Create chunk from dictionary"""
+        if data.get("topics") is not None:
+            data["topics"] = set(data["topics"])
+        return cls(**data)
+
+    def to_node(self) -> TextNode:
+        """Convert to LlamaIndex TextNode"""
+        return TextNode(
+            text=self.text,
+            metadata={
+                "start_idx": self.start_idx,
+                "end_idx": self.end_idx,
+                "importance_score": self.importance_score,
+                "topics": list(self.topics) if self.topics else [],
+                **self.metadata
+            }
+        )
+
+    @classmethod
+    def from_node(cls, node: TextNode) -> 'Chunk':
+        """Create from LlamaIndex TextNode"""
+        metadata = node.metadata or {}
+        return cls(
+            text=node.text,
+            start_idx=metadata.get("start_idx", 0),
+            end_idx=metadata.get("end_idx", len(node.text)),
+            metadata={k: v for k, v in metadata.items() 
+                     if k not in ["start_idx", "end_idx", "importance_score", "topics"]},
+            importance_score=metadata.get("importance_score", 0.0),
+            topics=set(metadata.get("topics", []))
+        )
 
 class ChunkManager:
-    """Manage text chunking and processing"""
+    """Manage text chunking and processing using LlamaIndex"""
     
     def __init__(self, settings: Settings):
+        self.settings = settings
         self.chunk_size = settings.chunk_size
-        self.overlap = settings.overlap or int(self.chunk_size * 0.2)  # 20% overlap by default
+        self.overlap = settings.overlap or int(self.chunk_size * 0.2)
+        
+        # Initialize NLTK
         try:
             nltk.download('punkt', quiet=True)
+            nltk.download('averaged_perceptron_tagger', quiet=True)
+            nltk.download('maxent_ne_chunker', quiet=True)
+            nltk.download('words', quiet=True)
         except:
-            logger.warning("NLTK punkt download failed - falling back to basic sentence splitting")
+            logger.warning("NLTK download failed - falling back to basic processing")
             
     def create_chunks(self, text: str, preserve_sentences: bool = True) -> List[Chunk]:
-        """Split text into overlapping chunks with semantic awareness"""
+        """Create chunks using LlamaIndex with enhanced processing"""
         try:
-            # Split into sentences using NLTK for better accuracy
-            try:
-                sentences = sent_tokenize(text)
-            except:
-                sentences = self._split_into_sentences(text)
-                
-            chunks = []
-            current_chunk = []
-            current_length = 0
-            start_idx = 0
+            # Create LlamaIndex document
+            doc = Document(text=text)
             
-            for sentence in sentences:
-                sentence_length = len(sentence)
-                
-                # Check if adding this sentence exceeds chunk size
-                if current_length + sentence_length > self.chunk_size and current_chunk:
-                    # Create chunk with semantic metadata
-                    chunk_text = ' '.join(current_chunk)
-                    chunk = Chunk(
-                        text=chunk_text,
-                        start_idx=start_idx,
-                        end_idx=start_idx + len(chunk_text),
-                        metadata=self._extract_semantic_metadata(chunk_text),
-                        importance_score=self._calculate_importance(chunk_text),
-                        topics=self._extract_topics(chunk_text)
-                    )
-                    chunks.append(chunk)
-                    
-                    # Start new chunk with overlap
-                    overlap_tokens = self._get_overlap_tokens(current_chunk)
-                    current_chunk = overlap_tokens + [sentence]
-                    current_length = sum(len(t) for t in current_chunk)
-                    start_idx = start_idx + len(chunk_text) - len(' '.join(overlap_tokens))
-                else:
-                    current_chunk.append(sentence)
-                    current_length += sentence_length
-                    
-            # Add final chunk if exists
-            if current_chunk:
-                chunk_text = ' '.join(current_chunk)
-                chunk = Chunk(
-                    text=chunk_text,
-                    start_idx=start_idx,
-                    end_idx=start_idx + len(chunk_text),
-                    metadata=self._extract_semantic_metadata(chunk_text),
-                    importance_score=self._calculate_importance(chunk_text),
-                    topics=self._extract_topics(chunk_text)
-                )
+            # Configure sentence splitter
+            parser = SentenceSplitter(
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.overlap,
+                paragraph_separator="\n\n",
+                secondary_chunking_regex="(?<=\\. )",
+                tokenizer=sent_tokenize
+            )
+            
+            # Get nodes with relationships
+            nodes = parser.get_nodes_from_documents([doc])
+            
+            # Convert to chunks while preserving relationships
+            chunks = []
+            node_map = {}  # Map node IDs to chunks
+            
+            for node in nodes:
+                chunk = Chunk.from_node(node)
                 chunks.append(chunk)
+                node_map[node.node_id] = chunk
+                
+            # Process relationships
+            for i, node in enumerate(nodes):
+                chunk = chunks[i]
+                
+                # Add relationships from node
+                if hasattr(node, 'relationships'):
+                    for rel in node.relationships:
+                        if isinstance(rel, NodeRelationship):
+                            related_chunk = node_map.get(rel.node_id)
+                            if related_chunk:
+                                chunk.relationships.append({
+                                    "chunk_id": chunks.index(related_chunk),
+                                    "type": rel.type_,
+                                    "metadata": rel.metadata
+                                })
+                
+                # Analyze chunk content
+                self._enhance_chunk(chunk)
                 
             return chunks
             
         except Exception as e:
             logger.error(f"Error creating chunks: {str(e)}")
-            return []
+            return self._fallback_chunking(text)
             
-    def _split_into_sentences(self, text: str) -> List[str]:
-        """Split text into sentences - fallback method"""
-        delimiters = '.!?'
-        sentences = []
-        current_sentence = []
+    def _enhance_chunk(self, chunk: Chunk):
+        """Enhance chunk with additional analysis"""
+        # Extract semantic metadata
+        chunk.metadata.update(self._extract_semantic_metadata(chunk.text))
         
-        for char in text:
-            current_sentence.append(char)
-            if char in delimiters:
-                sentences.append(''.join(current_sentence).strip())
-                current_sentence = []
-                
-        if current_sentence:
-            sentences.append(''.join(current_sentence).strip())
-            
-        return sentences
+        # Calculate importance score
+        chunk.importance_score = self._calculate_importance(chunk.text)
+        
+        # Extract topics
+        chunk.topics = set(self._extract_topics(chunk.text))
         
     def _extract_semantic_metadata(self, text: str) -> Dict:
         """Extract semantic metadata from chunk text"""
@@ -116,7 +182,8 @@ class ChunkManager:
             "has_citations": bool(re.search(r'\[\d+\]|\(\d+\)', text)),
             "has_figures": bool(re.search(r'fig\.|figure|tab\.|table', text, re.I)),
             "has_equations": bool(re.search(r'\$.*?\$', text)),
-            "section_indicators": self._identify_section_indicators(text)
+            "section_indicators": self._identify_section_indicators(text),
+            "named_entities": self._extract_named_entities(text)
         }
         return metadata
         
@@ -137,6 +204,34 @@ class ChunkManager:
                 
         return indicators
         
+    def _extract_named_entities(self, text: str) -> Dict[str, List[str]]:
+        """Extract named entities using NLTK"""
+        try:
+            tokens = nltk.word_tokenize(text)
+            pos_tags = nltk.pos_tag(tokens)
+            chunks = nltk.ne_chunk(pos_tags)
+            
+            entities = {
+                "PERSON": [],
+                "ORGANIZATION": [],
+                "GPE": [],  # Geo-Political Entities
+                "OTHER": []
+            }
+            
+            for chunk in chunks:
+                if hasattr(chunk, 'label'):
+                    entity_text = ' '.join(c[0] for c in chunk.leaves())
+                    if chunk.label() in entities:
+                        entities[chunk.label()].append(entity_text)
+                    else:
+                        entities["OTHER"].append(entity_text)
+                        
+            return entities
+            
+        except Exception as e:
+            logger.warning(f"Named entity extraction failed: {str(e)}")
+            return {}
+        
     def _calculate_importance(self, text: str) -> float:
         """Calculate importance score for chunk"""
         score = 0.0
@@ -155,117 +250,183 @@ class ChunkManager:
         if re.search(r'\d+\.?\d*%|\d+\.?\d*\s*\+/-', text):
             score += 0.15
             
-        # Normalize score
+        # Named entities
+        entities = self._extract_named_entities(text)
+        if sum(len(v) for v in entities.values()) > 0:
+            score += 0.15
+            
         return min(score, 1.0)
         
     def _extract_topics(self, text: str) -> List[str]:
         """Extract potential topics from chunk text"""
-        topics = []
+        topics = set()
         
-        # Extract noun phrases (basic approach)
-        noun_phrase_pattern = r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*'
-        if matches := re.findall(noun_phrase_pattern, text):
-            topics.extend(matches[:5])  # Limit to top 5
+        # Extract noun phrases
+        try:
+            tokens = nltk.word_tokenize(text)
+            pos_tags = nltk.pos_tag(tokens)
             
-        return topics
+            # Find noun phrases
+            i = 0
+            while i < len(pos_tags):
+                if pos_tags[i][1].startswith('JJ'):  # Adjective
+                    j = i + 1
+                    while j < len(pos_tags) and pos_tags[j][1].startswith('NN'):  # Noun
+                        j += 1
+                    if j > i + 1:
+                        topics.add(' '.join(token for token, _ in pos_tags[i:j]))
+                elif pos_tags[i][1].startswith('NN'):  # Noun
+                    j = i + 1
+                    while j < len(pos_tags) and pos_tags[j][1].startswith('NN'):
+                        j += 1
+                    if j > i + 1:
+                        topics.add(' '.join(token for token, _ in pos_tags[i:j]))
+                i += 1
+                
+        except Exception as e:
+            logger.warning(f"Topic extraction failed: {str(e)}")
+            
+        return list(topics)
         
-    def _get_overlap_tokens(self, chunk: List[str], num_tokens: Optional[int] = None) -> List[str]:
-        """Get tokens for chunk overlap"""
-        if num_tokens is None:
-            num_tokens = max(1, int(self.overlap / 10))  # Approximate tokens from overlap size
+    def _fallback_chunking(self, text: str) -> List[Chunk]:
+        """Fallback method for chunking when LlamaIndex fails"""
+        chunks = []
+        sentences = sent_tokenize(text) if nltk.data.find('tokenizers/punkt') else text.split('. ')
+        
+        current_chunk = []
+        current_length = 0
+        start_idx = 0
+        
+        for sentence in sentences:
+            sentence_length = len(sentence)
             
-        return chunk[-num_tokens:] if len(chunk) > num_tokens else chunk
+            if current_length + sentence_length > self.chunk_size and current_chunk:
+                chunk_text = ' '.join(current_chunk)
+                chunk = Chunk(
+                    text=chunk_text,
+                    start_idx=start_idx,
+                    end_idx=start_idx + len(chunk_text),
+                    metadata=self._extract_semantic_metadata(chunk_text),
+                    importance_score=self._calculate_importance(chunk_text),
+                    topics=self._extract_topics(chunk_text)
+                )
+                chunks.append(chunk)
+                
+                # Start new chunk with overlap
+                overlap_text = chunk_text[-self.overlap:] if self.overlap > 0 else ""
+                current_chunk = [overlap_text] if overlap_text else []
+                current_length = len(overlap_text)
+                start_idx = start_idx + len(chunk_text) - len(overlap_text)
+            else:
+                current_chunk.append(sentence)
+                current_length += sentence_length
+                
+        # Add final chunk
+        if current_chunk:
+            chunk_text = ' '.join(current_chunk)
+            chunk = Chunk(
+                text=chunk_text,
+                start_idx=start_idx,
+                end_idx=start_idx + len(chunk_text),
+                metadata=self._extract_semantic_metadata(chunk_text),
+                importance_score=self._calculate_importance(chunk_text),
+                topics=self._extract_topics(chunk_text)
+            )
+            chunks.append(chunk)
+            
+        return chunks
         
     def optimize_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
         """Optimize chunks for better processing"""
-        optimized_chunks = []
-        
-        # Sort chunks by importance score
+        # Sort by importance
         chunks.sort(key=lambda x: x.importance_score, reverse=True)
         
-        for chunk in chunks:
-            # Analyze chunk complexity
-            complexity = self._analyze_complexity(chunk.text)
-            
-            # Split complex chunks if needed
-            if complexity > 0.8 and len(chunk.text) > self.chunk_size / 2:
-                sub_chunks = self.create_chunks(chunk.text, preserve_sentences=True)
-                optimized_chunks.extend(sub_chunks)
+        # Group related chunks
+        chunk_groups = self._group_related_chunks(chunks)
+        
+        # Flatten groups while preserving relationships
+        optimized_chunks = []
+        for group in chunk_groups:
+            if len(group) == 1:
+                optimized_chunks.extend(group)
             else:
-                optimized_chunks.append(chunk)
+                merged = self._merge_chunk_group(group)
+                optimized_chunks.append(merged)
                 
         return optimized_chunks
         
-    def _analyze_complexity(self, text: str) -> float:
-        """Analyze text complexity"""
-        # Simple complexity score based on sentence length and word length
-        words = text.split()
-        if not words:
-            return 0
-            
-        avg_word_length = np.mean([len(word) for word in words])
-        sentences = self._split_into_sentences(text)
-        avg_sentence_length = np.mean([len(sentence.split()) for sentence in sentences]) if sentences else 0
+    def _group_related_chunks(self, chunks: List[Chunk]) -> List[List[Chunk]]:
+        """Group related chunks based on topics and relationships"""
+        groups = []
+        used_chunks = set()
         
-        # Consider technical indicators
-        technical_terms = len(re.findall(r'\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*\b', text))
-        equation_count = len(re.findall(r'\$.*?\$', text))
-        
-        # Normalize scores
-        word_score = min(avg_word_length / 10, 1)  # Assume max avg word length of 10
-        sentence_score = min(avg_sentence_length / 30, 1)  # Assume max avg sentence length of 30
-        technical_score = min(technical_terms / 10, 1)  # Normalize technical term count
-        equation_score = min(equation_count / 5, 1)  # Normalize equation count
-        
-        # Weighted average
-        return (word_score * 0.3 + sentence_score * 0.3 + 
-                technical_score * 0.2 + equation_score * 0.2)
-        
-    def merge_chunks(self, chunks: List[Chunk], max_size: int = None) -> List[Chunk]:
-        """Merge small chunks while respecting max size and semantic coherence"""
-        if not chunks:
-            return []
-            
-        max_size = max_size or self.chunk_size * 2
-        merged = []
-        current = chunks[0]
-        
-        for chunk in chunks[1:]:
-            combined_length = len(current.text) + len(chunk.text)
-            
-            # Check semantic compatibility
-            topic_overlap = bool(set(current.topics or []) & set(chunk.topics or []))
-            similar_importance = abs(current.importance_score - chunk.importance_score) < 0.3
-            
-            if (combined_length <= max_size and 
-                (topic_overlap or similar_importance)):
-                # Merge chunks
-                current = Chunk(
-                    text=current.text + " " + chunk.text,
-                    start_idx=current.start_idx,
-                    end_idx=chunk.end_idx,
-                    references={**(current.references or {}), **(chunk.references or {})},
-                    metadata=self._merge_metadata(current.metadata, chunk.metadata),
-                    importance_score=max(current.importance_score, chunk.importance_score),
-                    topics=list(set((current.topics or []) + (chunk.topics or [])))
-                )
-            else:
-                merged.append(current)
-                current = chunk
+        for chunk in chunks:
+            if chunk in used_chunks:
+                continue
                 
-        merged.append(current)
-        return merged
-        
-    def _merge_metadata(self, meta1: Dict, meta2: Dict) -> Dict:
-        """Merge metadata from two chunks"""
-        if not meta1 or not meta2:
-            return meta1 or meta2 or {}
+            group = [chunk]
+            used_chunks.add(chunk)
             
-        return {
-            "has_citations": meta1.get("has_citations", False) or meta2.get("has_citations", False),
-            "has_figures": meta1.get("has_figures", False) or meta2.get("has_figures", False),
-            "has_equations": meta1.get("has_equations", False) or meta2.get("has_equations", False),
-            "section_indicators": list(set(
-                meta1.get("section_indicators", []) + meta2.get("section_indicators", [])
-            ))
-        }
+            # Find related chunks
+            for other in chunks:
+                if other in used_chunks:
+                    continue
+                    
+                # Check topic overlap
+                topic_overlap = bool(chunk.topics & other.topics if chunk.topics and other.topics else False)
+                
+                # Check explicit relationships
+                has_relationship = any(
+                    rel["chunk_id"] == chunks.index(other)
+                    for rel in chunk.relationships
+                )
+                
+                if topic_overlap or has_relationship:
+                    group.append(other)
+                    used_chunks.add(other)
+                    
+            groups.append(group)
+            
+        return groups
+        
+    def _merge_chunk_group(self, group: List[Chunk]) -> Chunk:
+        """Merge a group of related chunks"""
+        if not group:
+            return None
+            
+        # Combine text and metadata
+        combined_text = " ".join(chunk.text for chunk in group)
+        combined_metadata = {}
+        combined_topics = set()
+        combined_relationships = []
+        max_importance = 0.0
+        
+        for chunk in group:
+            # Merge metadata
+            for key, value in chunk.metadata.items():
+                if key not in combined_metadata:
+                    combined_metadata[key] = value
+                elif isinstance(value, list):
+                    combined_metadata[key] = list(set(combined_metadata[key] + value))
+                    
+            # Merge topics
+            if chunk.topics:
+                combined_topics.update(chunk.topics)
+                
+            # Update importance score
+            max_importance = max(max_importance, chunk.importance_score)
+            
+            # Preserve relationships to chunks outside the group
+            for rel in chunk.relationships:
+                if not any(chunks.index(c) == rel["chunk_id"] for c in group):
+                    combined_relationships.append(rel)
+                    
+        return Chunk(
+            text=combined_text,
+            start_idx=group[0].start_idx,
+            end_idx=group[-1].end_idx,
+            metadata=combined_metadata,
+            importance_score=max_importance,
+            topics=combined_topics,
+            relationships=combined_relationships
+        )

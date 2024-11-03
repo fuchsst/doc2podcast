@@ -1,111 +1,203 @@
+"""Document processing module with enhanced analysis capabilities"""
+
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List, Optional
 from PyPDF2 import PdfReader
-import re
-import numpy as np
-from collections import defaultdict
+import json
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
+from crewai import LLM
+
 from ..config.settings import Settings
 from .text_cleaner import TextCleaner
 from .chunk_manager import ChunkManager, Chunk
 from ..pipeline.analysis_agents import AnalysisAgents
+from ..pipeline.base import DocumentAnalyzer, AnalysisContext
 from ..utils.callback_handler import PipelineCallback
+from ..utils.cache_manager import cache_manager
+from ..pipeline.config import ProcessingConfig, AnalysisConfig, AgentConfig
 
-class DocumentProcessor:
-    def __init__(self, settings: Settings):
+class DocumentProcessor(DocumentAnalyzer):
+    """Processes documents with enhanced analysis capabilities"""
+    
+    def __init__(
+        self,
+        settings: Settings,
+        config: Optional[ProcessingConfig] = None
+    ):
         self.settings = settings
+        self.config = config or ProcessingConfig.from_settings(settings)
+        
+        # Initialize components
         self.text_cleaner = TextCleaner()
         self.chunk_manager = ChunkManager(settings)
+        
+        # Initialize LLM
+        self.llm = LLM(
+            model=settings.text_generation_config.default,
+            temperature=settings.text_generation_config.temperature,
+            max_tokens=settings.text_generation_config.max_new_tokens,
+            api_key=settings.ANTHROPIC_API_KEY
+        )
+        
+        # Initialize analysis components with configs
+        analysis_config = self.config.analysis_config or AnalysisConfig.from_settings(settings)
+        agent_config = self.config.agent_config or AgentConfig.from_settings(settings)
+        self.analysis_agents = AnalysisAgents(self.llm, agent_config)
+    
+    def analyze(self, context: AnalysisContext) -> Dict[str, Any]:
+        """Implement abstract analyze method from DocumentAnalyzer"""
+        # Create a temporary file path for the context text
+        temp_file = Path("temp_document.txt")
+        try:
+            # Write context text to temporary file
+            temp_file.write_text(context.text)
+            
+            # Process the file using existing process method
+            result = self.process(temp_file, None)
+            
+            # Update result with context metadata
+            if isinstance(result, dict):
+                result["metadata"] = {
+                    **(result.get("metadata", {})),
+                    **context.metadata
+                }
+            
+            return result
+            
+        finally:
+            # Clean up temporary file
+            if temp_file.exists():
+                temp_file.unlink()
         
     def process(
         self,
         file_path: Path,
-        analysis_agents: Optional[AnalysisAgents] = None,
         callback: Optional[PipelineCallback] = None
     ) -> Dict[str, Any]:
-        """Process document and prepare for script generation"""
+        """Process document with enhanced analysis"""
         try:
+            # Generate file hash
+            file_hash = cache_manager.get_file_hash(Path(file_path))
+            
+            # Create analysis context
+            context = AnalysisContext(
+                text="",  # Will be populated from PDF
+                metadata={},  # Will be populated from PDF
+                settings=self.settings,
+                cache_key=file_hash
+            )
+            
             # Extract text and metadata
             if callback:
                 callback.on_document_processing(10, "Extracting text from document...")
-            text, metadata = self._extract_from_pdf(file_path)
+            
+            if self.config.cache_enabled:
+                extraction_cache = cache_manager.load_json_cache(file_hash, "extraction")
+                if extraction_cache:
+                    context.text = extraction_cache["text"]
+                    context.metadata = extraction_cache["metadata"]
+                else:
+                    context.text, context.metadata = self._extract_from_pdf(file_path)
+                    cache_manager.cache_json(file_hash, "extraction", {
+                        "text": context.text,
+                        "metadata": context.metadata
+                    })
+            else:
+                context.text, context.metadata = self._extract_from_pdf(file_path)
             
             # Clean text
             if callback:
                 callback.on_document_processing(20, "Cleaning text...")
-            cleaned_text = self.text_cleaner.clean_text(text)
             
-            # Create chunks
+            if self.config.cache_enabled:
+                cleaning_cache = cache_manager.load_json_cache(file_hash, "cleaning")
+                if cleaning_cache:
+                    cleaned_text = cleaning_cache
+                else:
+                    cleaned_text = self.text_cleaner.clean_text(context.text)
+                    cache_manager.cache_json(file_hash, "cleaning", cleaned_text)
+            else:
+                cleaned_text = self.text_cleaner.clean_text(context.text)
+            
+            context.text = cleaned_text["text"]
+            context.metadata["references"] = cleaned_text.get("references", [])
+            
+            # Create chunks using LlamaIndex
             if callback:
                 callback.on_document_processing(30, "Creating document chunks...")
-            chunks = self.chunk_manager.create_chunks(cleaned_text["text"])
             
-            # Extract document structure
+            if self.config.cache_enabled:
+                chunks_cache = cache_manager.load_json_cache(file_hash, "chunks")
+                if chunks_cache:
+                    chunks = [Chunk.from_dict(chunk_data) for chunk_data in chunks_cache]
+                else:
+                    chunks = self._create_chunks(context.text)
+                    cache_manager.cache_json(file_hash, "chunks", [
+                        chunk.to_dict() for chunk in chunks
+                    ])
+            else:
+                chunks = self._create_chunks(context.text)
+            
+            # Process chunks
             if callback:
-                callback.on_document_processing(40, "Analyzing document structure...")
-            structure = self._analyze_document_structure(chunks)
+                callback.on_document_processing(40, "Analyzing chunks...")
             
-            # Optimize chunks
-            if callback:
-                callback.on_document_processing(50, "Optimizing chunks...")
-            optimized_chunks = self.chunk_manager.optimize_chunks(chunks)
-            
-            # Group related chunks
-            if callback:
-                callback.on_document_processing(60, "Grouping related content...")
-            chunk_groups = self._group_related_chunks(optimized_chunks)
-            
-            # Perform detailed analysis if agents are provided
-            analysis_results = None
-            if analysis_agents:
+            chunk_results = []
+            total_chunks = len(chunks)
+            for i, chunk in enumerate(chunks):
                 if callback:
-                    callback.on_document_processing(70, "Starting detailed content analysis...")
-                    
-                # Analyze each chunk
-                chunk_results = []
-                total_chunks = len(optimized_chunks)
-                for i, chunk in enumerate(optimized_chunks):
-                    if callback:
-                        progress = 70 + (20 * (i / total_chunks))
-                        callback.on_document_processing(
-                            progress,
-                            f"Analyzing chunk {i+1} of {total_chunks}",
-                            substeps=[{
-                                "agent_role": "Content Analyst",
-                                "task_description": f"Processing chunk {i+1}/{total_chunks}"
-                            }]
-                        )
-                    result = analysis_agents.analyze_chunk(chunk.text)
-                    chunk_results.append(result)
+                    progress = 40 + (30 * (i / total_chunks))
+                    callback.on_document_processing(
+                        progress,
+                        f"Processing chunk {i+1}/{total_chunks}"
+                    )
                 
-                # Combine results
-                if callback:
-                    callback.on_document_processing(90, "Combining analysis results...")
-                analysis_results = analysis_agents.combine_results(chunk_results)
+                # Create context for chunk
+                chunk_context = AnalysisContext(
+                    text=chunk.text,
+                    metadata=chunk.metadata,
+                    settings=self.settings,
+                    cache_key=f"{file_hash}_chunk_{i}"
+                )
                 
-                if callback:
-                    callback.on_document_processing(95, "Finalizing analysis...")
+                # Analyze chunk
+                if self.config.cache_enabled:
+                    chunk_cache = cache_manager.load_json_cache(chunk_context.cache_key, "analysis")
+                    if chunk_cache:
+                        result = chunk_cache
+                    else:
+                        result = self.analysis_agents.analyze(chunk_context)
+                        cache_manager.cache_json(chunk_context.cache_key, "analysis", result)
+                else:
+                    result = self.analysis_agents.analyze(chunk_context)
+                
+                chunk_results.append(result)
             
-            # Prepare final result
-            result = {
-                "title": analysis_results.get("title") if analysis_results else metadata.get("title", file_path.stem),
-                "text": cleaned_text["text"],
-                "chunks": [chunk.text for chunk in optimized_chunks],
-                "structure": structure,
-                "chunk_groups": chunk_groups,
-                "analysis": analysis_results,
-                "metadata": {
-                    **metadata,
-                    "references": cleaned_text.get("references", []),
-                    "total_chunks": len(optimized_chunks),
-                    "key_topics": self._extract_key_topics(optimized_chunks),
-                    "document_type": self._identify_document_type(text, metadata)
-                }
+            # Consolidate results
+            if callback:
+                callback.on_document_processing(80, "Consolidating analysis results...")
+            
+            if self.config.cache_enabled:
+                consolidation_cache = cache_manager.load_json_cache(file_hash, "consolidation")
+                if consolidation_cache:
+                    consolidated_results = consolidation_cache
+                else:
+                    consolidated_results = self.analysis_agents.consolidate(chunk_results)
+                    cache_manager.cache_json(file_hash, "consolidation", consolidated_results)
+            else:
+                consolidated_results = self.analysis_agents.consolidate(chunk_results)
+            
+            # Add metadata
+            consolidated_results["metadata"] = {
+                **context.metadata,
+                "total_chunks": len(chunks)
             }
             
             if callback:
                 callback.on_document_processing(100, "Document processing complete")
-                
-            return result
+            
+            return consolidated_results
             
         except Exception as e:
             if callback:
@@ -123,153 +215,48 @@ class DocumentProcessor:
                 "author": reader.metadata.get("/Author", "Unknown") if reader.metadata else "Unknown",
                 "subject": reader.metadata.get("/Subject", "") if reader.metadata else "",
                 "keywords": reader.metadata.get("/Keywords", "").split(",") if reader.metadata else [],
-                "page_count": len(reader.pages)
+                "page_count": len(reader.pages),
+                "source_path": str(file_path)
             }
             
-            # Extract text with structure preservation
+            # Extract text
             text = ""
-            section_markers = []
-            current_page = 1
-            
             for page in reader.pages:
-                page_text = page.extract_text() or ""
-                
-                # Identify section breaks
-                if section_match := re.search(r'^(?:\d+\.)?\s*[A-Z][^.!?]*$', 
-                                           page_text, re.M):
-                    section_markers.append({
-                        "title": section_match.group().strip(),
-                        "page": current_page
-                    })
-                    
-                text += page_text + "\n\n"
-                current_page += 1
-                
-            metadata["section_markers"] = section_markers
+                text += (page.extract_text() or "") + "\n\n"
+            
             return text, metadata
             
         except Exception as e:
             raise RuntimeError(f"PDF extraction error: {str(e)}")
             
-    def _analyze_document_structure(self, chunks: List[Chunk]) -> Dict[str, Any]:
-        """Analyze document structure from chunks"""
-        structure = {
-            "sections": [],
-            "hierarchy": defaultdict(list),
-            "key_points": []
-        }
-        
-        current_section = None
-        section_content = []
-        
-        for chunk in chunks:
-            # Check for section indicators
-            if chunk.metadata and chunk.metadata.get("section_indicators"):
-                if current_section and section_content:
-                    structure["sections"].append({
-                        "title": current_section,
-                        "content": section_content,
-                        "importance": np.mean([c.importance_score for c in section_content])
-                    })
-                current_section = chunk.metadata["section_indicators"][0]
-                section_content = [chunk]
-            elif current_section:
-                section_content.append(chunk)
-                
-            # Track key points
-            if chunk.importance_score > 0.7:
-                structure["key_points"].append({
-                    "text": chunk.text,
-                    "score": chunk.importance_score,
-                    "topics": chunk.topics
-                })
-                
-        # Add final section
-        if current_section and section_content:
-            structure["sections"].append({
-                "title": current_section,
-                "content": section_content,
-                "importance": np.mean([c.importance_score for c in section_content])
-            })
+    def _create_chunks(self, text: str) -> List[Chunk]:
+        """Create document chunks using LlamaIndex"""
+        try:
+            # Create LlamaIndex document
+            doc = Document(text=text)
+            parser = SentenceSplitter(
+                chunk_size=self.config.chunk_size,
+                chunk_overlap=self.config.overlap
+            )
             
-        return structure
-        
-    def _group_related_chunks(self, chunks: List[Chunk]) -> List[Dict[str, Any]]:
-        """Group related chunks based on topics and content"""
-        groups = []
-        current_group = {
-            "chunks": [],
-            "topics": set(),
-            "importance": 0
-        }
-        
-        for chunk in chunks:
-            # Check if chunk fits current group
-            topic_overlap = bool(current_group["topics"] & set(chunk.topics or []))
+            # Get nodes
+            nodes = parser.get_nodes_from_documents([doc])
             
-            if topic_overlap and len(current_group["chunks"]) < 5:
-                current_group["chunks"].append(chunk)
-                current_group["topics"].update(chunk.topics or [])
-                current_group["importance"] = max(
-                    current_group["importance"],
-                    chunk.importance_score
+            # Convert to chunks
+            chunks = []
+            for i, node in enumerate(nodes):
+                chunk = Chunk(
+                    text=node.text,
+                    start_idx=node.start_char_idx if hasattr(node, 'start_char_idx') else i * self.config.chunk_size,
+                    end_idx=node.end_char_idx if hasattr(node, 'end_char_idx') else (i + 1) * self.config.chunk_size,
+                    metadata={"node_info": node.metadata} if hasattr(node, 'metadata') else {}
                 )
-            else:
-                if current_group["chunks"]:
-                    groups.append(current_group)
-                current_group = {
-                    "chunks": [chunk],
-                    "topics": set(chunk.topics or []),
-                    "importance": chunk.importance_score
-                }
-                
-        if current_group["chunks"]:
-            groups.append(current_group)
+                chunks.append(chunk)
             
-        return sorted(groups, key=lambda x: x["importance"], reverse=True)
-        
-    def _extract_key_topics(self, chunks: List[Chunk]) -> List[Dict[str, Any]]:
-        """Extract and rank key topics from chunks"""
-        topic_freq = defaultdict(int)
-        topic_chunks = defaultdict(list)
-        
-        for chunk in chunks:
-            if chunk.topics:
-                for topic in chunk.topics:
-                    topic_freq[topic] += 1
-                    topic_chunks[topic].append(chunk)
-                    
-        # Rank topics by frequency and chunk importance
-        ranked_topics = []
-        for topic, freq in topic_freq.items():
-            avg_importance = np.mean([
-                c.importance_score for c in topic_chunks[topic]
-            ])
-            ranked_topics.append({
-                "topic": topic,
-                "frequency": freq,
-                "importance": avg_importance,
-                "score": freq * avg_importance
-            })
+            return chunks
             
-        return sorted(ranked_topics, key=lambda x: x["score"], reverse=True)
-        
-    def _identify_document_type(self, text: str, metadata: Dict) -> str:
-        """Identify the type of academic document"""
-        # Check for common paper sections
-        has_abstract = bool(re.search(r'\b(abstract|summary)\b', text[:1000], re.I))
-        has_references = bool(re.search(r'\b(references|bibliography)\b', text[-5000:], re.I))
-        has_methodology = bool(re.search(r'\b(methodology|methods|experimental setup)\b', text, re.I))
-        
-        # Check for specific markers
-        if has_abstract and has_methodology and has_references:
-            return "research_paper"
-        elif bool(re.search(r'\b(thesis|dissertation)\b', text, re.I)):
-            return "thesis"
-        elif bool(re.search(r'\b(review|survey)\b', text[:2000], re.I)):
-            return "review_paper"
-        else:
-            return "general_academic"
+        except Exception as e:
+            raise RuntimeError(f"Chunk creation error: {str(e)}")
             
     def validate_pdf(self, file_path: Path) -> bool:
         """Validate PDF file"""

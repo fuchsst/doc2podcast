@@ -1,9 +1,11 @@
-"""Podcast creation wizard interface"""
+"""Podcast creation wizard interface with enhanced configuration management"""
+
 import streamlit as st
 from pathlib import Path
 import traceback
 from pages.components import wizard_ui, audio_player, status_tracker, file_uploader
 from src.config import Settings, PromptManager
+from src.pipeline.config import ConfigurationManager
 from src.pipeline.podcast_pipeline import PodcastPipeline
 from src.processors.document_processor import DocumentProcessor
 from src.generators.script_generator import ScriptGenerator
@@ -55,9 +57,9 @@ def get_callback_handler():
     return callback
 
 @st.cache_resource
-def get_document_processor():
-    """Cache document processor instance"""
-    return DocumentProcessor(get_settings())
+def get_document_processor(config):
+    """Cache document processor instance with config"""
+    return DocumentProcessor(get_settings(), config=config)
 
 @st.cache_resource
 def get_script_generator():
@@ -70,15 +72,95 @@ def get_voice_generator():
     return VoiceGenerator(get_settings())
 
 @st.cache_resource
-def get_pipeline():
-    """Cache pipeline instance"""
+def get_pipeline(config):
+    """Cache pipeline instance with config"""
     return PodcastPipeline(
         settings=get_settings(),
-        document_processor=get_document_processor(),
+        document_processor=get_document_processor(config),
         script_generator=get_script_generator(),
         voice_generator=get_voice_generator(),
         callback=get_callback_handler()
     )
+
+@st.cache_resource
+def get_config_manager():
+    """Cache configuration manager instance"""
+    return ConfigurationManager(get_settings())
+
+def get_processing_config(config_manager: ConfigurationManager):
+    """Get processing configuration with UI overrides"""
+    # Get base config
+    config = config_manager.get_processing_config()
+    
+    # Show configuration options in UI
+    with st.expander("Advanced Processing Settings"):
+        chunk_col1, chunk_col2 = st.columns(2)
+
+        chunk_size = chunk_col1.number_input(
+            "Chunk Size",
+            min_value=100,
+            max_value=100000,
+            value=config.chunk_size,
+            help="Size of text chunks for processing"
+        )
+        
+        overlap = chunk_col2.number_input(
+            "Chunk Overlap",
+            min_value=0,
+            max_value=1000,
+            value=config.overlap,
+            help="Overlap between chunks"
+        )
+        
+        cache_enabled = st.checkbox(
+            "Enable Caching",
+            value=config.cache_enabled,
+            help="Cache intermediate results"
+        )
+        
+        # Analysis Tool Settings
+        st.subheader("Analysis Tool Settings")
+        analysis_config = config.analysis_config
+        content_param_col1, content_param_col2, content_param_col3 = st.columns(3)
+
+        max_features = content_param_col1.number_input(
+            "Max Features",
+            min_value=10,
+            max_value=1000,
+            value=analysis_config.max_features,
+            help="Maximum number of features for analysis"
+        )
+        
+        num_topics = content_param_col2.number_input(
+            "Number of Topics",
+            min_value=1,
+            max_value=20,
+            value=analysis_config.num_topics,
+            help="Number of topics to extract"
+        )
+        
+        min_importance = content_param_col3.slider(
+            "Minimum Importance Score",
+            min_value=0.0,
+            max_value=1.0,
+            value=analysis_config.min_importance,
+            help="Minimum importance score for content"
+        )
+        
+        # Create override dict
+        overrides = {
+            "chunk_size": chunk_size,
+            "overlap": overlap,
+            "cache_enabled": cache_enabled,
+            "analysis_config": {
+                "chunk_size": chunk_size,  # Pass through chunk_size
+                "max_features": max_features,
+                "num_topics": num_topics,
+                "min_importance": min_importance
+            }
+        }
+        
+        return config_manager.get_processing_config(overrides)
 
 def handle_progress_update(update: ProgressUpdate):
     """Handle progress updates from the pipeline"""
@@ -108,26 +190,33 @@ def handle_progress_update(update: ProgressUpdate):
 def document_upload_step():
     """Step 1: Document Upload and Processing"""
     
+    # Get configuration
+    config_manager = get_config_manager()
+    processing_config = get_processing_config(config_manager)
+    
     # File upload component
     doc_path = file_uploader.render_file_uploader()
     
     if doc_path:
-        st.session_state.current_file = str(doc_path)  # Convert Path to string
+        st.session_state.current_file = str(doc_path)
         
         # Show processing settings preview
         wizard_ui.show_settings_preview(
             "Processing Settings",
-            Settings().project_config.processing.model_dump()
+            processing_config.__dict__
         )
         
         if st.button("Process Document"):
             try:
+                # Reset processed content
+                st.session_state.processed_content = None
+                
                 # Create progress placeholders
                 st.session_state.progress_placeholder = st.progress(0)
                 st.session_state.status_placeholder = st.empty()
                 
-                # Process document only
-                pipeline = get_pipeline()
+                # Process document with config
+                pipeline = get_pipeline(processing_config)
                 processed_content = pipeline.process_document(st.session_state.current_file)
                 
                 # Store processed content
@@ -425,6 +514,9 @@ def main():
     """Main render function for the podcast creation page"""
     st.title("Create Your Podcast")
     init_session_state()
+    
+    # Initialize configuration
+    config_manager = get_config_manager()
     
     # Show wizard progress
     wizard_ui.show_progress_bar([

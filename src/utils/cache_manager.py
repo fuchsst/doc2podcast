@@ -4,7 +4,7 @@ import json
 import time
 import hashlib
 from pathlib import Path
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Callable, Dict
 from functools import wraps
 import pickle
 
@@ -24,6 +24,30 @@ class CacheManager:
     def _get_cache_path(self, func_name: str, cache_key: str) -> Path:
         """Get path for cached result"""
         return self.cache_dir / f"{func_name}_{cache_key}.pkl"
+
+    def get_content_hash(self, content: str) -> str:
+        """Generate hash from content string"""
+        return hashlib.md5(content.encode()).hexdigest()
+
+    def get_file_hash(self, file_path: Path) -> str:
+        """Generate hash from file content"""
+        with open(file_path, 'rb') as f:
+            content = f.read()
+        return hashlib.md5(content).hexdigest()
+
+    def cache_json(self, content_hash: str, step_name: str, data: Dict) -> None:
+        """Cache JSON data with content hash and step name"""
+        cache_path = self.cache_dir / f"{content_hash}_{step_name}.json"
+        with open(cache_path, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    def load_json_cache(self, content_hash: str, step_name: str) -> Optional[Dict]:
+        """Load cached JSON data if it exists"""
+        cache_path = self.cache_dir / f"{content_hash}_{step_name}.json"
+        if cache_path.exists():
+            with open(cache_path) as f:
+                return json.load(f)
+        return None
         
     def cache(self, ttl: Optional[int] = None) -> Callable:
         """Cache decorator
