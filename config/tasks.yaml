@@ -23,56 +23,127 @@ tasks:
         - metadata
       output_format: "json"
 
-  content_generation:
+  content_strategy:
     description: >
-      Using the following research analysis, create a podcast script:
-      {analysis_result}
+      Create a podcast content strategy using:
+      Content: {content}
+      Format: {preset}
+      Target Audience: {target_audience}
+      Expertise Level: {expertise_level}
+      Additional Guidance: {guidance}
       
       Requirements:
-      1. Create a natural conversation between host and guest
-      2. Explain complex concepts clearly for a general audience
-      3. Include engaging examples and analogies
-      4. Maintain a logical flow of topics
-      5. Add appropriate transitions between segments
+      1. Plan episode structure following the format template
+      2. Identify key discussion points and transitions
+      3. Adapt content complexity for target audience
+      4. Consider expertise level in technical depth
+      5. Incorporate format-specific elements
       
-      Format as a dialogue with clear speaker indicators.
+      Return a detailed content strategy with segment planning.
     
-    expected_output: "Conversational podcast script"
+    expected_output: "JSON with content strategy and segment planning"
+    agent: "content_strategist"
+    parameters:
+      min_segments: 3
+      max_segments: 10
+      include_transitions: true
+    validation:
+      required_fields:
+        - episode_structure
+        - key_points
+        - transitions
+      output_format: "json"
+
+  script_writing:
+    description: >
+      Using this content strategy, create a podcast script:
+      {strategy}
+      
+      Consider:
+      Target Audience: {target_audience}
+      Expertise Level: {expertise_level}
+      
+      Requirements:
+      1. Create natural dialogue between speakers
+      2. Follow the episode structure
+      3. Include clear speaker indicators
+      4. Add appropriate transitions
+      5. Match content to audience level
+      
+      Format as a structured conversation script.
+    
+    expected_output: "JSON with dialogue script"
     agent: "script_writer"
     parameters:
       temperature: 0.7
-      top_p: 0.9
       max_tokens: 8126
+      style: "conversational"
     validation:
       required_fields:
-        - initial_script
-        - tts_script
+        - segments
+        - speakers
+        - metadata
+      output_format: "json"
+
+  voice_optimization:
+    description: >
+      Optimize this script for voice synthesis:
+      {script}
+      
+      Using these voice profiles:
+      {voices}
+      
+      Requirements:
+      1. Adapt text for natural speech patterns
+      2. Add pronunciation guidance
+      3. Optimize pacing and emphasis
+      4. Consider voice characteristics
+      5. Balance segment lengths
+      
+      Return voice-optimized script.
+    
+    expected_output: "JSON with optimized script"
+    agent: "voice_optimizer"
+    parameters:
+      target_duration: 1800
+      include_markers: true
+    validation:
+      required_fields:
+        - segments
+        - voice_guidance
+        - timing
       output_format: "json"
 
   quality_control:
     description: >
-      Review and optimize the following script:
+      Review and optimize this script:
       {script}
+      
+      For audience:
+      Target: {target_audience}
+      Level: {expertise_level}
       
       Check for:
       1. Content accuracy and clarity
       2. Natural conversation flow
-      3. Appropriate pacing and transitions
+      3. Appropriate pacing
       4. Technical accuracy
       5. Audience engagement
       
-      Provide specific improvements and corrections.
-    expected_output: "Improved script with quality assessment"
+      Provide improvements and final script.
+    
+    expected_output: "JSON with final script and quality metrics"
     agent: "quality_checker"
     parameters:
-      min_score: 0.8
+      min_quality_score: 0.8
       check_points:
         - content_accuracy
         - conversation_flow
-        - voice_compatibility
+        - audience_fit
     validation:
       required_fields:
-        - quality_score
+        - final_script
+        - quality_metrics
         - improvements
       output_format: "json"
 

@@ -1,5 +1,7 @@
+"""Settings and configuration management"""
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from crewai import LLM
 import yaml
 from pydantic_settings import BaseSettings
 from pydantic import Field, BaseModel, ConfigDict, validator
@@ -354,3 +356,13 @@ class Settings(BaseSettings):
         if category not in prompts or prompt_name not in prompts.get(category, {}):
             raise ValueError(f"Unknown prompt: {category}/{prompt_name}")
         return prompts[category][prompt_name]
+    
+    def get_llm(self) -> LLM:
+        """Get configured LLM instance"""
+        config = self.text_generation_config
+        return LLM(
+            model=config.default,
+            temperature=config.temperature,
+            max_tokens=config.max_new_tokens,
+            api_key=self.ANTHROPIC_API_KEY
+        )

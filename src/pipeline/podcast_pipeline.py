@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from ..config.settings import Settings
 from ..processors.document_processor import DocumentProcessor, ProcessingConfig
-from ..generators.script_generator import ScriptGenerator
+from ..generators.script_generator import PodcastScriptGenerator
 from ..generators.voice_generator import VoiceGenerator
 from ..utils.callback_handler import PipelineCallback, StepType
 from ..pipeline.analysis_agents import AnalysisAgents, AgentConfig
@@ -17,7 +17,7 @@ class PodcastPipeline:
         self,
         settings: Settings,
         document_processor: DocumentProcessor,
-        script_generator: ScriptGenerator,
+        script_generator: PodcastScriptGenerator,
         voice_generator: VoiceGenerator,
         callback: Optional[PipelineCallback] = None
     ):
@@ -147,7 +147,7 @@ class PodcastPipeline:
         """Create pipeline instance from settings"""
         # Create components
         document_processor = DocumentProcessor(settings)
-        script_generator = ScriptGenerator(settings, callback=callback)
+        script_generator = PodcastScriptGenerator(settings, callback=callback)
         voice_generator = VoiceGenerator(settings)
         
         return cls(

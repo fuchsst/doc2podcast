@@ -51,6 +51,39 @@ voices:
             emotion: "enthusiastic"
             variation: 0.2
 
+    michael_stern:
+      name: "Dr. Michael Stern"
+      character_background:
+        profession: "Technology Educator"
+        expertise:
+          - "Computer Science"
+          - "Software Engineering"
+          - "System Architecture"
+        personality:
+          - "patient"
+          - "methodical"
+          - "engaging"
+        speaking_style: "Clear and methodical with relatable examples"
+      
+      voice_profiles:
+        educational:
+          model: "F5-TTS"
+          reference_audio: "voices/michael_stern/educational.wav"
+          reference_text: |
+            Let's break this down step by step. When we talk about software architecture,
+            we're really discussing how different components work together to solve a problem.
+            Think of it like building a house - you need a strong foundation first.
+          style_tags:
+            - "clear"
+            - "methodical"
+            - "educational"
+          voice_parameters:
+            pace: 0.9
+            pitch: 0.5
+            energy: 0.6
+            emotion: "professional"
+            variation: 0.1
+
   casual:
     alex_rivera:
       name: "Alex Rivera"
@@ -100,6 +133,37 @@ voices:
             energy: 0.9
             variation: 0.3
 
+    emma_chang:
+      name: "Emma Chang"
+      character_background:
+        profession: "Tech Journalist"
+        expertise:
+          - "Technology Impact"
+          - "Digital Innovation"
+          - "User Experience"
+        personality:
+          - "insightful"
+          - "approachable"
+          - "engaging"
+        speaking_style: "Conversational and relatable with clear explanations"
+      
+      voice_profiles:
+        storytelling:
+          model: "E2-TTS"
+          reference_audio: "voices/emma_chang/storytelling.wav"
+          reference_text: |
+            You know how sometimes technology can feel overwhelming? Well, let me share 
+            something fascinating I discovered recently. It's changing the way we think 
+            about everyday problems in really surprising ways.
+          style_tags:
+            - "engaging"
+            - "narrative"
+            - "relatable"
+          voice_parameters:
+            pace: 1.1
+            energy: 0.7
+            variation: 0.2
+
 prompts:
   interview:
     technical_deep_dive:
@@ -133,3 +197,211 @@ prompts:
             Host: {comprehensive_summary}
             Guest: {final_insight}
             Host: {closing_remarks}
+      
+      target_audiences:
+        - name: "Technical Professional"
+          description: "Software developers, engineers, and technical practitioners"
+          technical_depth: 4
+          assumed_knowledge:
+            - "Programming concepts"
+            - "System architecture"
+            - "Software development lifecycle"
+        
+        - name: "Student"
+          description: "Computer science and engineering students"
+          technical_depth: 3
+          assumed_knowledge:
+            - "Basic programming"
+            - "Computer science fundamentals"
+        
+        - name: "General Audience"
+          description: "Technology enthusiasts and curious learners"
+          technical_depth: 2
+          assumed_knowledge:
+            - "Basic computer usage"
+            - "General technology concepts"
+      
+      expertise_levels:
+        - name: "Beginner"
+          description: "Fundamental concepts and basic applications"
+          complexity: 1
+          focus_areas:
+            - "Core concepts"
+            - "Basic terminology"
+            - "Simple examples"
+        
+        - name: "Intermediate"
+          description: "Practical applications and implementation details"
+          complexity: 3
+          focus_areas:
+            - "Implementation patterns"
+            - "Best practices"
+            - "Common challenges"
+        
+        - name: "Advanced"
+          description: "Deep technical details and advanced concepts"
+          complexity: 5
+          focus_areas:
+            - "Advanced techniques"
+            - "System internals"
+            - "Performance optimization"
+
+    educational_walkthrough:
+      name: "Educational Technology Walkthrough"
+      description: "Step-by-step explanation of technical concepts with practical examples"
+      roles:
+        host:
+          voice: "michael_stern.educational"
+          objective: "Guide through concepts with clear explanations"
+          style: "educational_expert"
+        guest:
+          voice: "emma_chang.storytelling"
+          objective: "Provide real-world context and applications"
+          style: "practical_explorer"
+      
+      structure:
+        introduction:
+          template: |
+            Host: {concept_introduction}
+            Guest: {real_world_connection}
+        
+        main_discussion:
+          segments:
+            - concept_basics
+            - practical_examples
+            - common_challenges
+            - best_practices
+        
+        conclusion:
+          template: |
+            Guest: {practical_takeaways}
+            Host: {key_learning_points}
+            Guest: {future_applications}
+            Host: {final_tips}
+      
+      target_audiences:
+        - name: "Student"
+          description: "Students learning technology concepts"
+          technical_depth: 2
+          assumed_knowledge:
+            - "Basic computer concepts"
+            - "Simple programming ideas"
+        
+        - name: "Technology Enthusiast"
+          description: "Self-learners and technology hobbyists"
+          technical_depth: 2
+          assumed_knowledge:
+            - "General technology usage"
+            - "Basic technical concepts"
+        
+        - name: "Professional Transition"
+          description: "Professionals transitioning to technical roles"
+          technical_depth: 3
+          assumed_knowledge:
+            - "Professional work experience"
+            - "Project management concepts"
+      
+      expertise_levels:
+        - name: "Beginner"
+          description: "Foundation building and core concepts"
+          complexity: 1
+          focus_areas:
+            - "Basic principles"
+            - "Fundamental concepts"
+            - "Getting started guides"
+        
+        - name: "Intermediate"
+          description: "Building on basics with real applications"
+          complexity: 2
+          focus_areas:
+            - "Practical applications"
+            - "Common tools"
+            - "Basic troubleshooting"
+        
+        - name: "Advanced"
+          description: "Complex concepts and specialized topics"
+          complexity: 3
+          focus_areas:
+            - "Advanced features"
+            - "Integration patterns"
+            - "Best practices"
+
+    tech_impact_discussion:
+      name: "Technology Impact Discussion"
+      description: "Exploring how technology affects society and daily life"
+      roles:
+        host:
+          voice: "emma_chang.storytelling"
+          objective: "Guide discussion on technology impact"
+          style: "narrative_journalist"
+        guest:
+          voice: "alex_rivera.excited"
+          objective: "Share enthusiasm and practical insights"
+          style: "tech_enthusiast"
+      
+      structure:
+        introduction:
+          template: |
+            Host: {impact_introduction}
+            Guest: {personal_perspective}
+        
+        main_discussion:
+          segments:
+            - current_trends
+            - societal_impact
+            - future_implications
+            - practical_considerations
+        
+        conclusion:
+          template: |
+            Guest: {future_outlook}
+            Host: {impact_summary}
+            Guest: {personal_takeaway}
+            Host: {closing_thoughts}
+      
+      target_audiences:
+        - name: "General Public"
+          description: "General audience interested in technology impact"
+          technical_depth: 1
+          assumed_knowledge:
+            - "Basic technology usage"
+            - "Current events awareness"
+        
+        - name: "Business Professional"
+          description: "Professionals interested in technology trends"
+          technical_depth: 2
+          assumed_knowledge:
+            - "Business concepts"
+            - "Industry trends"
+        
+        - name: "Policy Maker"
+          description: "Those involved in technology policy"
+          technical_depth: 2
+          assumed_knowledge:
+            - "Policy framework"
+            - "Regulatory concepts"
+      
+      expertise_levels:
+        - name: "Beginner"
+          description: "Basic understanding of technology impact"
+          complexity: 1
+          focus_areas:
+            - "Basic concepts"
+            - "Current trends"
+            - "Simple implications"
+        
+        - name: "Intermediate"
+          description: "Deeper analysis of technology effects"
+          complexity: 2
+          focus_areas:
+            - "Impact analysis"
+            - "Future trends"
+            - "Practical applications"
+        
+        - name: "Advanced"
+          description: "Complex analysis of technology influence"
+          complexity: 3
+          focus_areas:
+            - "Detailed analysis"
+            - "Policy implications"
+            - "Future scenarios"

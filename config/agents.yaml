@@ -16,11 +16,28 @@ agents:
     allow_delegation: false
     verbose: true
 
+  content_strategist:
+    name: "Content Strategy Agent"
+    role: "Plan and structure podcast content"
+    goal: "Create engaging and well-structured podcast outlines"
+    backstory: "Expert content strategist with years of experience in podcast production and audience engagement"
+    tools:
+      content_analyzer:
+        min_segments: 3
+        max_segments: 10
+      audience_analyzer:
+        metrics: ["engagement", "comprehension", "relevance"]
+      topic_organizer:
+        max_topics: 5
+        min_topic_depth: 2
+    allow_delegation: false
+    verbose: true
+
   script_writer:
-    name: "Script Generation Agent"
+    name: "Script Writing Agent"
     role: "Create engaging podcast scripts"
-    goal: "Transform processed content into natural conversations"
-    backstory: "Award-winning podcast writer with expertise in multiple formats"
+    goal: "Transform content strategies into natural conversations"
+    backstory: "Award-winning podcast writer with expertise in multiple formats and styles"
     tools:
       content_generator:
         temperature: 0.7
@@ -35,11 +52,29 @@ agents:
     allow_delegation: false
     verbose: true
 
+  voice_optimizer:
+    name: "Voice Style Optimization Agent"
+    role: "Optimize script for voice synthesis"
+    goal: "Adapt scripts for natural-sounding voice synthesis"
+    backstory: "Voice synthesis expert specializing in natural speech patterns and voice characteristics"
+    tools:
+      style_analyzer:
+        voice_profiles: ["technical", "casual", "enthusiastic"]
+        style_parameters: ["pace", "energy", "variation"]
+      speech_optimizer:
+        pronunciation_guide: true
+        emphasis_markers: true
+      timing_analyzer:
+        target_duration: 1800
+        segment_limits: {"min": 10, "max": 60}
+    allow_delegation: false
+    verbose: true
+
   quality_checker:
     name: "Quality Control Agent"
     role: "Verify and improve content quality"
     goal: "Ensure high-quality, accurate, and engaging content"
-    backstory: "Experienced content editor with attention to detail"
+    backstory: "Experienced content editor with attention to detail and expertise in podcast production"
     tools:
       content_validator:
         min_score: 0.8

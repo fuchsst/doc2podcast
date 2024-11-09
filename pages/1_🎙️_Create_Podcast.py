@@ -8,9 +8,10 @@ from src.config import Settings, PromptManager
 from src.pipeline.config import ConfigurationManager
 from src.pipeline.podcast_pipeline import PodcastPipeline
 from src.processors.document_processor import DocumentProcessor
-from src.generators.script_generator import ScriptGenerator
+from src.generators.script_generator import PodcastScriptGenerator, ScriptGenerationConfig
 from src.generators.voice_generator import VoiceGenerator
 from src.utils.callback_handler import PipelineCallback, ProgressUpdate, StepType
+from src.models.podcast_script import PodcastScript
 
 st.set_page_config(
     page_title="Create Podcast",
@@ -64,7 +65,7 @@ def get_document_processor(config):
 @st.cache_resource
 def get_script_generator():
     """Cache script generator instance"""
-    return ScriptGenerator(get_settings(), callback=get_callback_handler())
+    return PodcastScriptGenerator(get_settings(), callback=get_callback_handler())
 
 @st.cache_resource
 def get_voice_generator():
@@ -164,28 +165,31 @@ def get_processing_config(config_manager: ConfigurationManager):
 
 def handle_progress_update(update: ProgressUpdate):
     """Handle progress updates from the pipeline"""
-    if st.session_state.progress_placeholder:
-        # Update progress bar
-        st.session_state.progress_placeholder.progress(update.progress / 100)
-        
-        # Update status message
-        st.session_state.status_placeholder.write(f"**{update.step.value}**: {update.message}")
-        
-        # Update processing status for sidebar display
-        st.session_state.processing_status = {
-            "current_step": update.step.value,
-            "progress": update.progress,
-            "message": update.message,
-            "error": update.error
-        }
-        
-        # Show substeps if available
-        if update.substeps:
-            status_tracker.render_substeps(update.substeps)
-                
-        # Show error if present
-        if update.error:
-            st.error(f"Error: {update.error}")
+    try:
+        if st.session_state.progress_placeholder:
+            # Update progress bar
+            st.session_state.progress_placeholder.progress(update.progress / 100)
+            
+            # Update status message
+            st.session_state.status_placeholder.write(f"**{update.step.value}**: {update.message}")
+            
+            # Update processing status for sidebar display
+            st.session_state.processing_status = {
+                "current_step": update.step.value,
+                "progress": update.progress,
+                "message": update.message,
+                "error": update.error
+            }
+            
+            # Show substeps if available
+            if update.substeps:
+                status_tracker.render_substeps(update.substeps)
+                    
+            # Show error if present
+            if update.error:
+                st.error(f"Error: {update.error}")
+    except Exception as e:
+        st.error(f"Error updating progress: {str(e)}")
 
 def document_upload_step():
     """Step 1: Document Upload and Processing"""
@@ -239,15 +243,7 @@ def document_upload_step():
                 wizard_ui.show_error("Error processing document", error_details)
 
 def render_analysis_results(analysis_results):
-    """Render analysis results preview in main content area
-    
-    Args:
-        analysis_results (dict): Analysis results containing:
-            - title (str): Document title
-            - topics (dict): Extracted topics
-            - key_insights (dict): Key insights
-            - questions (dict): Analyzed questions
-    """
+    """Render analysis results preview in main content area"""
     if not analysis_results:
         return
         
@@ -291,6 +287,87 @@ def render_analysis_results(analysis_results):
                             for q in q_list:
                                 st.markdown(f"- {q}")
 
+def render_script_output(script_data):
+    """Render script generation outputs in the UI"""
+    if not script_data:
+        return
+        
+    # Handle both dict and PodcastScript objects
+    if isinstance(script_data, PodcastScript):
+        # Content Strategy
+        if hasattr(script_data, 'content_strategy'):
+            wizard_ui.render_content_strategy(script_data.content_strategy)
+                    
+        # Script Preview
+        if hasattr(script_data, 'segments'):
+            st.markdown("### Script Preview")
+            for i, segment in enumerate(script_data.segments):
+                with st.expander(f"Segment {i+1}: {segment.speaker.name}", expanded=i==0):
+                    st.text_area(
+                        "Content",
+                        segment.text,
+                        height=150,
+                        key=f"segment_{i}",
+                        disabled=True
+                    )
+                    
+                    # Show voice parameters
+                    if hasattr(segment.speaker, "voice_parameters"):
+                        params = segment.speaker.voice_parameters
+                        cols = st.columns(5)
+                        
+                        cols[0].metric("Pace", f"{params.pace:.1f}x")
+                        cols[1].metric("Pitch", f"{params.pitch:.1f}")
+                        cols[2].metric("Energy", f"{params.energy:.1f}")
+                        cols[3].metric("Variation", f"{params.variation:.1f}")
+                        cols[4].markdown(f"**Emotion:** {params.emotion}")
+                        
+                    # Show voice settings
+                    if hasattr(segment.speaker, "voice_model"):
+                        st.markdown(f"""
+                        **Voice Settings:**
+                        - Model: {segment.speaker.voice_model}
+                        - Preset: {segment.speaker.voice_preset or 'default'}
+                        - Style Tags: {', '.join(segment.speaker.style_tags)}
+                        """)
+                    
+        # Quality Review
+        if hasattr(script_data, 'quality_review'):
+            wizard_ui.render_quality_review(script_data.quality_review)
+    else:
+        # Handle dict format
+        # Content Strategy
+        if "content_strategy" in script_data:
+            wizard_ui.render_content_strategy(script_data["content_strategy"])
+                    
+        # Script Preview
+        if "segments" in script_data:
+            st.markdown("### Script Preview")
+            for i, segment in enumerate(script_data["segments"]):
+                with st.expander(f"Segment {i+1}: {segment['speaker']['name']}", expanded=i==0):
+                    st.text_area(
+                        "Content",
+                        segment["text"],
+                        height=150,
+                        key=f"segment_{i}",
+                        disabled=True
+                    )
+                    
+                    # Show voice parameters if available
+                    if "voice_parameters" in segment["speaker"]:
+                        params = segment["speaker"]["voice_parameters"]
+                        cols = st.columns(5)
+                        
+                        cols[0].metric("Pace", f"{params.get('pace', 1.0):.1f}x")
+                        cols[1].metric("Pitch", f"{params.get('pitch', 1.0):.1f}")
+                        cols[2].metric("Energy", f"{params.get('energy', 0.5):.1f}")
+                        cols[3].metric("Variation", f"{params.get('variation', 0.5):.1f}")
+                        cols[4].markdown(f"**Emotion:** {params.get('emotion', 'neutral')}")
+                    
+        # Quality Review
+        if "quality_review" in script_data:
+            wizard_ui.render_quality_review(script_data["quality_review"])
+
 def script_generation_step():
     """Step 2: Script Generation with Presets"""
 
@@ -304,71 +381,152 @@ def script_generation_step():
 
     prompt_manager = PromptManager(settings=Settings())
     
-    # Get available formats from prompt manager
-    format_type = st.selectbox(
-        "Select Podcast Format",
-        options=["technical_deep_dive"],  # Default format
-        help="Choose the style of podcast you want to create"
-    )
-    
-    if format_type:
-        try:
-            # Get format details through prompt manager
-            format_config = prompt_manager.get_interview_prompt(format_type)
+    try:
+        # Get available podcast presets
+        presets = prompt_manager.get_podcast_presets()
+        preset_options = list(presets.keys())
+
+        col1, col2, col3 = st.columns(3)
+        
+        # Podcast format selection
+        format_type = col1.selectbox(
+            "Select Podcast Format",
+            options=preset_options,
+            help="Choose the style of podcast you want to create"
+        )
+        
+        if format_type:
+            # Get format details
+            format_config = presets[format_type]
+            
+            # Get available audiences for this format
+            audiences = prompt_manager.get_target_audiences(format_type)
+            audience_options = [a.name for a in audiences]
+            
+            # Target audience selection
+            target_audience = col2.selectbox(
+                "Target Audience",
+                options=audience_options,
+                help="Select the primary audience for this podcast"
+            )
+            
+            # Get available expertise levels for this format
+            expertise_levels = prompt_manager.get_expertise_levels(format_type)
+            level_options = [l.name for l in expertise_levels]
+            
+            # Expertise level selection
+            expertise_level = col3.selectbox(
+                "Expertise Level",
+                options=level_options,
+                help="Select the technical depth of the content"
+            )
+            
+            # Optional guidance prompt
+            guidance_prompt = st.text_area(
+                "Additional Guidance (Optional)",
+                help="Provide any specific instructions or focus areas for the podcast"
+            )
             
             # Show format preview
-            wizard_ui.show_settings_preview(
-                "Format Details",
-                format_config
-            )
+            with st.expander("Format Details"):
+                # Show roles
+                st.subheader("Roles")
+                for role_name, role in format_config.roles.items():
+                    st.markdown(f"**{role_name}**: {role.objective}")
+                
+                # Show structure
+                st.subheader("Structure")
+                st.markdown("**Introduction**")
+                st.code(format_config.structure.introduction.template)
+                
+                st.markdown("**Main Discussion**")
+                for segment in format_config.structure.main_discussion["segments"]:
+                    st.markdown(f"- {segment}")
+                
+                st.markdown("**Conclusion**")
+                st.code(format_config.structure.conclusion.template)
             
             if st.button("Generate Script"):
-                # Create progress placeholders
-                st.session_state.progress_placeholder = st.progress(0)
-                st.session_state.status_placeholder = st.empty()
-                
-                with st.spinner("Generating script..."):
-                    pipeline = get_pipeline()
+                try:
+                    # Create containers for progress and script
+                    progress_container = st.container()
+                    script_container = st.container()
                     
-                    # Generate script with the processed content
-                    script = pipeline.generate_script(st.session_state.processed_content)
+                    # Initialize progress tracking
+                    with progress_container:
+                        st.session_state.progress_placeholder = st.progress(0)
+                        st.session_state.status_placeholder = st.empty()
+                        st.session_state.substeps_placeholder = st.empty()
+                        
+                        # Show initial substeps
+                        status_tracker.render_substeps([
+                            {"name": "Content Strategy", "status": "in_progress"},
+                            {"name": "Script Writing", "status": "pending"},
+                            {"name": "Voice Optimization", "status": "pending"},
+                            {"name": "Quality Review", "status": "pending"}
+                        ])
                     
-                    # Store the script for later use
-                    st.session_state.current_script = script
+                    with st.spinner("Generating script..."):
+                        # Create script generation config
+                        script_config = ScriptGenerationConfig(
+                            podcast_preset=format_type,
+                            target_audience=target_audience,
+                            expertise_level=expertise_level,
+                            guidance_prompt=guidance_prompt if guidance_prompt else None
+                        )
+                        
+                        # Generate script
+                        script_generator = get_script_generator()
+                        script = script_generator.generate_script(
+                            st.session_state.processed_content,
+                            script_config
+                        )
+                        
+                        # Store the script
+                        st.session_state.current_script = script
+                        
+                        with script_container:
+                            # Show script preview
+                            st.subheader("Generated Script")
+                            
+                            # Show content strategy
+                            if hasattr(script, 'content_strategy'):
+                                wizard_ui.render_content_strategy(script.content_strategy)
+                            
+                            # Show script segments
+                            render_script_output(script)
+                            
+                            # Show quality review
+                            if hasattr(script, 'quality_review'):
+                                wizard_ui.render_quality_review(script.quality_review)
+                            
+                            # Store script settings
+                            st.session_state.script_settings = {
+                                "format_type": format_type,
+                                "format_config": format_config.dict(),
+                                "target_audience": target_audience,
+                                "expertise_level": expertise_level,
+                                "guidance_prompt": guidance_prompt
+                            }
+                            
+                            st.success("Script generated successfully!")
+                        
+                        # Clear progress display
+                        progress_container.empty()
                     
-                    # Show script preview with editing
-                    st.subheader("Generated Script")
-                    
-                    # Get the script text, handling both string and object cases
-                    script_text = ""
-                    if isinstance(script, str):
-                        script_text = script
-                    elif hasattr(script, 'segments'):
-                        # If script has segments, combine their text
-                        script_text = "\n\n".join(f"{segment.speaker}: {segment.text}" for segment in script.segments)
-                    elif hasattr(script, 'text'):
-                        script_text = script.text
-                    else:
-                        script_text = str(script)
-                    
-                    edited_script = st.text_area(
-                        "Review and edit the script if needed:",
-                        script_text,
-                        height=300
+                except Exception as e:
+                    error_details = traceback.format_exc()
+                    wizard_ui.show_error(
+                        "Failed to generate script",
+                        error_details
                     )
                     
-                    # Store script settings
-                    st.session_state.script_settings = {
-                        "format_type": format_type,
-                        "format_config": format_config,
-                        "edited_script": edited_script
-                    }
-                
-        except Exception as e:
-            wizard_ui.show_error(
-                "Failed to generate script",
-                traceback.format_exc()
-            )
+    except Exception as e:
+        error_details = traceback.format_exc()
+        wizard_ui.show_error(
+            "Failed to load podcast presets",
+            error_details
+        )
 
 def voice_settings_step():
     """Step 3: Voice Settings Configuration"""

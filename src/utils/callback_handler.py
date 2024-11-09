@@ -1,5 +1,5 @@
 """Callback handler for tracking progress of pipeline steps"""
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Union
 from dataclasses import dataclass
 from enum import Enum
 
@@ -37,8 +37,23 @@ class PipelineCallback:
         if callback_fn in self._subscribers:
             self._subscribers.remove(callback_fn)
             
-    def on_progress(self, update: ProgressUpdate):
-        """Send progress update to all subscribers"""
+    def on_progress(self, step: Union[StepType, ProgressUpdate], progress: Optional[float] = None, message: Optional[str] = None, substeps: Optional[List[Dict[str, Any]]] = None):
+        """Send progress update to all subscribers
+        
+        Can be called either with:
+        1. A ProgressUpdate object: callback.on_progress(progress_update)
+        2. Individual parameters: callback.on_progress(step, progress, message, substeps)
+        """
+        if isinstance(step, ProgressUpdate):
+            update = step
+        else:
+            update = ProgressUpdate(
+                step=step,
+                progress=progress if progress is not None else 0,
+                message=message if message is not None else "",
+                substeps=substeps
+            )
+            
         for subscriber in self._subscribers:
             subscriber(update)
             
@@ -58,6 +73,30 @@ class PipelineCallback:
             error=error
         )
         self.on_progress(update)
+
+    def on_step_start(self, step: StepType, message: str):
+        """Called when a major pipeline step starts"""
+        self.on_progress(ProgressUpdate(
+            step=step,
+            progress=0,
+            message=message
+        ))
+
+    def on_step_complete(self, step: StepType, message: str):
+        """Called when a major pipeline step completes"""
+        self.on_progress(ProgressUpdate(
+            step=step,
+            progress=100,
+            message=message
+        ))
+
+    def on_substep_complete(self, step: StepType, message: str):
+        """Called when a substep within a major pipeline step completes"""
+        self.on_progress(ProgressUpdate(
+            step=step,
+            progress=50,  # Use intermediate progress for substeps
+            message=message
+        ))
         
     def on_document_processing(self, progress: float, message: str, substeps: Optional[List[Dict[str, Any]]] = None):
         """Update document processing progress"""
