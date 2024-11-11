@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from ..config.settings import Settings
 from ..processors.document_processor import DocumentProcessor, ProcessingConfig
-from ..generators.script_generator import PodcastScriptGenerator
+from ..generators.script_generator import PodcastScriptGenerator, ScriptGenerationConfig
 from ..generators.voice_generator import VoiceGenerator
 from ..utils.callback_handler import PipelineCallback, StepType
 from ..pipeline.analysis_agents import AnalysisAgents, AgentConfig
@@ -66,18 +66,116 @@ class PodcastPipeline:
             if self.callback:
                 self.callback.on_error(StepType.DOCUMENT_PROCESSING, str(e))
             raise
-            
-    def generate_script(self, content: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate podcast script"""
+
+    def generate_content_strategy(
+        self,
+        content: Dict[str, Any],
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Generate content strategy"""
         try:
-            # Generate script
-            script = self.script_generator.generate_script(content)
+            if self.callback:
+                self.callback.on_step_start(StepType.SCRIPT_GENERATION, "Generating content strategy")
+            
+            # Generate content strategy
+            strategy = self.script_generator.generate_content_strategy(content, config)
+            
+            if self.callback:
+                self.callback.on_step_complete(
+                    StepType.SCRIPT_GENERATION,
+                    "Content strategy generated successfully"
+                )
+            
+            return strategy
+            
+        except Exception as e:
+            if self.callback:
+                self.callback.on_error(StepType.SCRIPT_GENERATION, str(e))
+            raise
+
+    def write_script(
+        self,
+        content: Dict[str, Any],
+        strategy: Dict[str, Any],
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Write podcast script"""
+        try:
+            if self.callback:
+                self.callback.on_step_start(StepType.SCRIPT_GENERATION, "Writing script")
+            
+            # Write script
+            script = self.script_generator.write_script(content, strategy, config)
+            
+            if self.callback:
+                self.callback.on_step_complete(
+                    StepType.SCRIPT_GENERATION,
+                    "Script written successfully"
+                )
             
             return script
             
         except Exception as e:
             if self.callback:
                 self.callback.on_error(StepType.SCRIPT_GENERATION, str(e))
+            raise
+
+    def review_script_quality(
+        self,
+        script: Dict[str, Any],
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Review script quality"""
+        try:
+            if self.callback:
+                self.callback.on_step_start(StepType.SCRIPT_GENERATION, "Reviewing script quality")
+            
+            # Review script
+            reviewed_script = self.script_generator.review_script_quality(script, config)
+            
+            if self.callback:
+                self.callback.on_step_complete(
+                    StepType.SCRIPT_GENERATION,
+                    "Script review completed successfully"
+                )
+            
+            return reviewed_script
+            
+        except Exception as e:
+            if self.callback:
+                self.callback.on_error(StepType.SCRIPT_GENERATION, str(e))
+            raise
+            
+    def optimize_voice_settings(self, script: Dict[str, Any], voice_settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Optimize voice parameters based on voice settings"""
+        try:
+            if self.callback:
+                # Initialize voice optimization substep
+                substeps = [
+                    {"name": "Voice Optimization", "status": "in_progress"}
+                ]
+                self.callback.on_script_generation(
+                    progress=0,
+                    message="Optimizing voice parameters...",
+                    substeps=substeps
+                )
+            
+            # Apply voice settings and optimize parameters
+            optimized_script = self.voice_generator.optimize_voice_parameters(script, voice_settings)
+            
+            if self.callback:
+                substeps[0]["status"] = "complete"
+                self.callback.on_script_generation(
+                    progress=100,
+                    message="Voice optimization complete",
+                    substeps=substeps
+                )
+            
+            return optimized_script
+            
+        except Exception as e:
+            if self.callback:
+                self.callback.on_error(StepType.VOICE_OPTIMIZATION, str(e))
             raise
             
     def generate_audio(
@@ -107,19 +205,26 @@ class PodcastPipeline:
     def process_file(
         self,
         file_path: str,
-        output_name: Optional[str] = None
+        output_name: Optional[str] = None,
+        script_config: Optional[ScriptGenerationConfig] = None
     ) -> bool:
         """Process file through complete pipeline"""
         try:
             # Process document
             content = self.process_document(file_path)
             
-            # Generate script
-            script = self.generate_script(content)
+            # Generate content strategy
+            strategy = self.generate_content_strategy(content, config=script_config)
+            
+            # Write script
+            script = self.write_script(content, strategy, config=script_config)
+            
+            # Review script quality
+            reviewed_script = self.review_script_quality(script, config=script_config)
             
             # Generate audio
             output_name = output_name or Path(file_path).stem
-            success = self.generate_audio(script, output_name)
+            success = self.generate_audio(reviewed_script, output_name)
             
             return success
             

@@ -42,75 +42,6 @@ class ScriptGenerationConfig:
     expertise_level: str
     guidance_prompt: Optional[str] = None
 
-class TaskFactory:
-    """Factory for creating script generation tasks"""
-    
-    @staticmethod
-    def create_strategy_task(context: ScriptContext, agent: Agent) -> Task:
-        """Create content strategy task"""
-        return Task(
-            description=f"""
-            Create a podcast content strategy using:
-            Content: {json.dumps(context.content)}
-            Format: {json.dumps(context.format)}
-            Audience: {json.dumps(context.audience)}
-            Expertise: {json.dumps(context.expertise)}
-            Guidance: {context.guidance or "None provided"}
-            
-            IMPORTANT: Return a valid JSON object with the exact structure specified in the tool description.
-            """,
-            expected_output="""JSON object containing content strategy with proper structure""",
-            agent=agent
-        )
-        
-    @staticmethod
-    def create_writing_task(context: ScriptContext, agent: Agent, strategy_result: Dict[str, Any]) -> Task:
-        """Create script writing task"""
-        return Task(
-            description=f"""
-            Create a podcast script following:
-            Strategy: {json.dumps(strategy_result)}
-            Format: {json.dumps(context.format)}
-            Audience: {json.dumps(context.audience)}
-            Expertise: {json.dumps(context.expertise)}
-            
-            IMPORTANT: Return a valid JSON object with the exact structure specified in the tool description.
-            """,
-            expected_output="""JSON object containing script with proper structure""",
-            agent=agent
-        )
-        
-    @staticmethod
-    def create_voice_task(context: ScriptContext, agent: Agent, script_result: Dict[str, Any]) -> Task:
-        """Create voice optimization task"""
-        return Task(
-            description=f"""
-            Optimize this script for voice synthesis:
-            Script: {json.dumps(script_result)}
-            Format: {json.dumps(context.format)}
-            
-            IMPORTANT: Return a valid JSON object with the exact structure specified in the tool description.
-            """,
-            expected_output="""JSON object containing voice optimization with proper structure""",
-            agent=agent
-        )
-        
-    @staticmethod
-    def create_quality_task(context: ScriptContext, agent: Agent, optimized_script: Dict[str, Any]) -> Task:
-        """Create quality control task"""
-        return Task(
-            description=f"""
-            Review and improve this script:
-            Script: {json.dumps(optimized_script)}
-            Audience: {json.dumps(context.audience)}
-            Expertise: {json.dumps(context.expertise)}
-            
-            IMPORTANT: Return a valid JSON object with the exact structure specified in the tool description.
-            """,
-            expected_output="""JSON object containing quality review with proper structure""",
-            agent=agent
-        )
-
 class PodcastScriptGenerator(ScriptGenerator, ResultsFormatter):
     """Generates podcast scripts using CrewAI agents"""
     
@@ -121,14 +52,31 @@ class PodcastScriptGenerator(ScriptGenerator, ResultsFormatter):
         # Initialize LLM
         self.llm = settings.get_llm()
         
-        # Initialize tools
-        self.content_tool = ContentStrategyTool(self.llm)
-        self.script_tool = ScriptWritingTool(self.llm)
-        self.voice_tool = VoiceOptimizationTool(self.llm)
-        self.quality_tool = QualityControlTool(self.llm)
-        
-        # Initialize agents
-        self.initialize_agents()
+        # Initialize tools with callback
+        self.content_tool = ContentStrategyTool(
+            name="Content Strategy Tool",
+            description="Creates podcast content strategy with episode structure, key points, transitions, and audience adaptations",
+            llm=self.llm,
+            callback=callback
+        )
+        self.script_tool = ScriptWritingTool(
+            name="Script Writing Tool",
+            description="Creates podcast script from content strategy with proper structure and flow",
+            llm=self.llm,
+            callback=callback
+        )
+        self.voice_tool = VoiceOptimizationTool(
+            name="Voice Optimization Tool",
+            description="Optimizes script for voice synthesis with proper pacing, emphasis, and emotional guidance",
+            llm=self.llm,
+            callback=callback
+        )
+        self.quality_tool = QualityControlTool(
+            name="Quality Control Tool",
+            description="Reviews and improves script for content accuracy, flow, and audience fit",
+            llm=self.llm,
+            callback=callback
+        )
         
     def generate(self, content: Dict[str, Any], *args, **kwargs) -> Dict[str, Any]:
         """Implement abstract generate method from Generator base class"""
@@ -140,99 +88,19 @@ class PodcastScriptGenerator(ScriptGenerator, ResultsFormatter):
         ))
         return self.generate_script(content, config)
         
-    def initialize_agents(self):
-        """Initialize CrewAI agents"""
-        
-        # Content Strategist Agent
-        content_strategist = self.prompt_manager.get_agent_prompt("content_strategist")
-        self.strategist = Agent(
-            role=content_strategist["role"],
-            goal=content_strategist["goal"],
-            backstory=content_strategist["backstory"],
-            verbose=True,
-            allow_delegation=False,
-            llm=self.llm,
-            tools=[self.content_tool]
-        )
-        
-        # Script Writer Agent
-        script_writer = self.prompt_manager.get_agent_prompt("script_writer")
-        self.writer = Agent(
-            role=script_writer["role"],
-            goal=script_writer["goal"],
-            backstory=script_writer["backstory"],
-            verbose=True,
-            allow_delegation=False,
-            llm=self.llm,
-            tools=[self.script_tool]
-        )
-        
-        # Voice Style Optimizer Agent
-        voice_optimizer = self.prompt_manager.get_agent_prompt("voice_optimizer")
-        self.optimizer = Agent(
-            role=voice_optimizer["role"],
-            goal=voice_optimizer["goal"],
-            backstory=voice_optimizer["backstory"],
-            verbose=True,
-            allow_delegation=False,
-            llm=self.llm,
-            tools=[self.voice_tool]
-        )
-        
-        # Quality Control Agent
-        quality_checker = self.prompt_manager.get_agent_prompt("quality_checker")
-        self.quality_checker = Agent(
-            role=quality_checker["role"],
-            goal=quality_checker["goal"],
-            backstory=quality_checker["backstory"],
-            verbose=True,
-            allow_delegation=False,
-            llm=self.llm,
-            tools=[self.quality_tool]
-        )
-        
-    def format_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Format and validate generation results"""
-        try:
-            # Validate individual components
-            strategy_data = ContentStrategySchema(**results[0])
-            script_data = ScriptSchema(**results[1])
-            voice_data = OptimizedScriptSchema(**results[2])
-            quality_data = QualityReviewSchema(**results[3])
-            
-            # Create consolidated results
-            consolidated = ConsolidatedScriptSchema(
-                content_strategy=strategy_data,
-                initial_script=script_data,
-                optimized_script=voice_data,
-                quality_review=quality_data,
-                metadata={
-                    "version": "1.0",
-                    "generated_at": datetime.datetime.now().isoformat()
-                }
-            )
-            
-            return consolidated
-            
-        except Exception as e:
-            raise ValueError(f"Failed to format results: {str(e)}")
-        
-    def generate_script(
+    def generate_content_strategy(
         self,
         content: Dict[str, Any],
-        config: ScriptGenerationConfig
-    ) -> PodcastScript:
-        """Generate complete podcast script"""
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Generate content strategy"""
         try:
-            if self.callback:
-                self.callback.on_step_start(StepType.SCRIPT_GENERATION, "Starting script generation")
-            
             # Check cache first
             cache_key = cache_manager.get_content_hash(str(content))
-            cached_result = cache_manager.load_json_cache(cache_key, "complete_script")
+            cached_result = cache_manager.load_json_cache(cache_key, "content_strategy")
             if cached_result:
-                return PodcastScript(**cached_result)
-            
+                return cached_result
+                
             # Get format configuration
             format_config = self.prompt_manager.get_interview_prompt(config.podcast_preset)
             
@@ -252,212 +120,228 @@ class PodcastScriptGenerator(ScriptGenerator, ResultsFormatter):
                 guidance=config.guidance_prompt
             )
             
-            # Execute tasks sequentially with progress tracking
-            results = []
+            # Generate content strategy
+            result = self.content_tool.analyze(context)
+            
+            # Cache result
+            cache_manager.cache_json(cache_key, "content_strategy", result)
+            
+            return result
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate content strategy: {str(e)}")
+            
+    def write_script(
+        self,
+        content: Dict[str, Any],
+        strategy: Dict[str, Any],
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Write podcast script"""
+        try:
+            # Check cache first
+            cache_key = cache_manager.get_content_hash(str(content) + str(strategy))
+            cached_result = cache_manager.load_json_cache(cache_key, "script_writing")
+            if cached_result:
+                return cached_result
+                
+            # Get format configuration
+            format_config = self.prompt_manager.get_interview_prompt(config.podcast_preset)
+            
+            # Get audience and expertise configurations
+            audiences = self.prompt_manager.get_target_audiences(config.podcast_preset)
+            audience = next(a for a in audiences if a.name == config.target_audience)
+            
+            expertise_levels = self.prompt_manager.get_expertise_levels(config.podcast_preset)
+            expertise = next(l for l in expertise_levels if l.name == config.expertise_level)
+            
+            # Create script context with strategy as content
+            context = ScriptContext(
+                content=strategy,
+                format=format_config.model_dump(),
+                audience=audience.model_dump(),
+                expertise=expertise.model_dump(),
+                guidance=config.guidance_prompt
+            )
+            
+            # Write script
+            result = self.script_tool.analyze(context)
+            
+            # Cache result
+            cache_manager.cache_json(cache_key, "script_writing", result)
+            
+            return result
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to write script: {str(e)}")
+            
+    def optimize_voice_settings(
+        self,
+        script: Dict[str, Any],
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Optimize voice settings"""
+        try:
+            # Check cache first
+            cache_key = cache_manager.get_content_hash(str(script))
+            cached_result = cache_manager.load_json_cache(cache_key, "voice_optimization")
+            if cached_result:
+                return cached_result
+                
+            # Get format configuration
+            format_config = self.prompt_manager.get_interview_prompt(config.podcast_preset)
+            
+            # Create script context
+            context = ScriptContext(
+                content=script,
+                format=format_config.model_dump()
+            )
+            
+            # Optimize voice settings
+            result = self.voice_tool.analyze(context)
+            
+            # Cache result
+            cache_manager.cache_json(cache_key, "voice_optimization", result)
+            
+            return result
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to optimize voice settings: {str(e)}")
+            
+    def review_script_quality(
+        self,
+        script: Dict[str, Any],
+        config: Optional[ScriptGenerationConfig] = None
+    ) -> Dict[str, Any]:
+        """Review script quality"""
+        try:
+            # Check cache first
+            cache_key = cache_manager.get_content_hash(str(script))
+            cached_result = cache_manager.load_json_cache(cache_key, "quality_control")
+            if cached_result:
+                return cached_result
+                
+            # Get format configuration
+            format_config = self.prompt_manager.get_interview_prompt(config.podcast_preset)
+            
+            # Get audience and expertise configurations
+            audiences = self.prompt_manager.get_target_audiences(config.podcast_preset)
+            audience = next(a for a in audiences if a.name == config.target_audience)
+            
+            expertise_levels = self.prompt_manager.get_expertise_levels(config.podcast_preset)
+            expertise = next(l for l in expertise_levels if l.name == config.expertise_level)
+            
+            # Create script context
+            context = ScriptContext(
+                content=script,
+                format=format_config.model_dump(),
+                audience=audience.model_dump(),
+                expertise=expertise.model_dump(),
+                guidance=config.guidance_prompt
+            )
+            
+            # Review script
+            result = self.quality_tool.analyze(context)
+            
+            # Cache result
+            cache_manager.cache_json(cache_key, "quality_control", result)
+            
+            return result
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to review script quality: {str(e)}")
+                        
+    def generate_script(
+        self,
+        content: Dict[str, Any],
+        config: ScriptGenerationConfig
+    ) -> PodcastScript:
+        """Generate complete podcast script"""
+        try:
+            if self.callback:
+                self.callback.on_step_start(StepType.SCRIPT_GENERATION, "Starting script generation")
+            
+            # Check cache first
+            cache_key = cache_manager.get_content_hash(str(content))
+            cached_result = cache_manager.load_json_cache(cache_key, "complete_script")
+            if cached_result:
+                return PodcastScript(**cached_result)
+            
+            # Step 1: Generate content strategy
+            strategy = self.generate_content_strategy(content, config)
+            
+            # Step 2: Write script
+            script = self.write_script(content, strategy, config)
+            
+            # Step 3: Optimize voice settings
+            optimized = self.optimize_voice_settings(script, config)
+            
+            # Step 4: Review script quality
+            reviewed = self.review_script_quality(optimized, config)
+            
+            # Format results
+            results = [strategy, script, optimized, reviewed]
+            
+            # Use the optimized script's segments and voice guidance
+            voice_guidance = optimized["voice_guidance"]
 
-            # Initialize substeps
-            substeps = [
-                {"name": "Content Strategy", "status": "pending"},
-                {"name": "Script Writing", "status": "pending"},
-                {"name": "Voice Optimization", "status": "pending"},
-                {"name": "Quality Review", "status": "pending"}
-            ]
+            # Get voice configurations from roles
+            format_config = self.prompt_manager.get_interview_prompt(config.podcast_preset)
+            roles = format_config.roles
             
-            # Step 1: Content Strategy
-            if self.callback:
-                substeps[0]["status"] = "in_progress"
-                self.callback.on_script_generation(
-                    progress=0,
-                    message="Generating content strategy...",
-                    substeps=substeps
-                )
-                
-            strategy_task = TaskFactory.create_strategy_task(context, self.strategist)
-            crew = Crew(
-                agents=[self.strategist],
-                tasks=[strategy_task],
-                verbose=True,
-                process=Process.sequential
-            )
-            strategy_output = crew.kickoff()
-            
-            try:
-                strategy_result = parse_json_safely(str(strategy_output))
-                results.append(strategy_result)
-            except Exception as e:
-                raise RuntimeError(f"Failed to parse strategy output: {str(e)}\nOutput was: {str(strategy_output)}")
-            
-            if self.callback:
-                substeps[0]["status"] = "completed"
-                self.callback.on_script_generation(
-                    progress=25,
-                    message="Content strategy generated",
-                    substeps=substeps
-                )
-            
-            # Step 2: Script Writing
-            if self.callback:
-                substeps[1]["status"] = "in_progress"
-                self.callback.on_script_generation(
-                    progress=25,
-                    message="Writing script...",
-                    substeps=substeps
-                )
-                
-            writing_task = TaskFactory.create_writing_task(context, self.writer, strategy_result)
-            crew = Crew(
-                agents=[self.writer],
-                tasks=[writing_task],
-                verbose=True,
-                process=Process.sequential
-            )
-            script_output = crew.kickoff()
-            
-            try:
-                script_result = parse_json_safely(str(script_output))
-                results.append(script_result)
-            except Exception as e:
-                raise RuntimeError(f"Failed to parse script output: {str(e)}\nOutput was: {str(script_output)}")
-            
-            if self.callback:
-                substeps[1]["status"] = "completed"
-                self.callback.on_script_generation(
-                    progress=50,
-                    message="Script written",
-                    substeps=substeps
-                )
-            
-            # Step 3: Voice Optimization
-            if self.callback:
-                substeps[2]["status"] = "in_progress"
-                self.callback.on_script_generation(
-                    progress=50,
-                    message="Optimizing for voice...",
-                    substeps=substeps
-                )
-                
-            voice_task = TaskFactory.create_voice_task(context, self.optimizer, script_result)
-            crew = Crew(
-                agents=[self.optimizer],
-                tasks=[voice_task],
-                verbose=True,
-                process=Process.sequential
-            )
-            voice_output = crew.kickoff()
-            
-            try:
-                voice_result = parse_json_safely(str(voice_output))
-                results.append(voice_result)
-            except Exception as e:
-                raise RuntimeError(f"Failed to parse voice output: {str(e)}\nOutput was: {str(voice_output)}")
-            
-            if self.callback:
-                substeps[2]["status"] = "completed"
-                self.callback.on_script_generation(
-                    progress=75,
-                    message="Voice optimization complete",
-                    substeps=substeps
-                )
-            
-            # Step 4: Quality Review
-            if self.callback:
-                substeps[3]["status"] = "in_progress"
-                self.callback.on_script_generation(
-                    progress=75,
-                    message="Performing quality review...",
-                    substeps=substeps
-                )
-                
-            quality_task = TaskFactory.create_quality_task(context, self.quality_checker, voice_result)
-            crew = Crew(
-                agents=[self.quality_checker],
-                tasks=[quality_task],
-                verbose=True,
-                process=Process.sequential
-            )
-            quality_output = crew.kickoff()
-            
-            try:
-                quality_result = parse_json_safely(str(quality_output))
-                results.append(quality_result)
-            except Exception as e:
-                raise RuntimeError(f"Failed to parse quality output: {str(e)}\nOutput was: {str(quality_output)}")
-            
-            if self.callback:
-                substeps[3]["status"] = "completed"
-                self.callback.on_script_generation(
-                    progress=100,
-                    message="Quality review complete",
-                    substeps=substeps
-                )
-            
-            # Format and validate results
-            try:
-                consolidated = self.format_results(results)
-                
-                # Get final script from quality review
-                final_script = consolidated["quality_review"]["final_script"]
-                voice_guidance = consolidated["optimized_script"]["voice_guidance"]
-
-                # Get voice configurations from roles
-                roles = format_config.roles
-                
-                # Convert to PodcastScript object
-                script = PodcastScript(
-                    metadata=PodcastMetadata(
-                        title=final_script.get("metadata", {}).get("title", "Untitled Podcast"),
-                        description=final_script.get("metadata", {}).get("description"),
-                        source_document=content.get("source", {}).get("path"),
-                        tags=final_script.get("metadata", {}).get("tags", []),
-                        duration=None  # Will be set during audio generation
-                    ),
-                    segments=[
-                        ScriptSegment(
-                            speaker=Speaker(
-                                name=segment["speaker"],
-                                voice_model=self._get_voice_config(roles[segment["speaker"]].voice if segment["speaker"] in roles else None),
-                                voice_preset=None,  # Will be set during voice configuration
-                                style_tags=[roles[segment["speaker"]].style] if segment["speaker"] in roles and roles[segment["speaker"]].style else [],
-                                voice_parameters=VoiceParameters(
-                                    pace=voice_guidance["pacing"].get(segment["speaker"], 1.0),
-                                    pitch=voice_guidance.get("pitch", {}).get(segment["speaker"], 1.0),
-                                    energy=voice_guidance.get("emotions", {}).get(segment["speaker"], {}).get("energy", 0.5),
-                                    emotion=voice_guidance.get("emotions", {}).get(segment["speaker"], {}).get("type", "neutral"),
-                                    variation=voice_guidance.get("emphasis", {}).get(segment["speaker"], {}).get("variation", 0.5)
-                                ),
-                                reference=Reference(
-                                    audio_path=None,  # Will be set during voice configuration
-                                    text=segment.get("reference_text", "")
-                                ) if segment.get("reference_text") else None
+            # Convert to PodcastScript object
+            script = PodcastScript(
+                metadata=PodcastMetadata(
+                    title=script.get("metadata", {}).get("title", "Untitled Podcast"),
+                    description=script.get("metadata", {}).get("description"),
+                    source_document=content.get("source", {}).get("path"),
+                    tags=script.get("metadata", {}).get("tags", []),
+                    duration=None  # Will be set during audio generation
+                ),
+                segments=[
+                    ScriptSegment(
+                        speaker=Speaker(
+                            name=segment["speaker"],
+                            voice_model=self._get_voice_config(roles[segment["speaker"]].voice if segment["speaker"] in roles else None),
+                            voice_preset=None,  # Will be set during voice configuration
+                            style_tags=[roles[segment["speaker"]].style] if segment["speaker"] in roles and roles[segment["speaker"]].style else [],
+                            voice_parameters=VoiceParameters(
+                                pace=voice_guidance["pacing"].get(segment["speaker"], 1.0),
+                                pitch=voice_guidance.get("pitch", {}).get(segment["speaker"], 1.0),
+                                energy=voice_guidance.get("emotions", {}).get(segment["speaker"], {}).get("energy", 0.5),
+                                emotion=voice_guidance.get("emotions", {}).get(segment["speaker"], {}).get("type", "neutral"),
+                                variation=voice_guidance.get("emphasis", {}).get(segment["speaker"], {}).get("variation", 0.5)
                             ),
-                            text=segment["text"],
-                            duration=None,  # Will be set during audio generation
-                            audio_path=None  # Will be set during audio generation
-                        )
-                        for segment in final_script["segments"]
-                    ],
-                    settings={
-                        "format": config.podcast_preset,
-                        "target_audience": config.target_audience,
-                        "expertise_level": config.expertise_level,
-                        "voice_guidance": voice_guidance
-                    }
-                )
-                
-                # Cache the complete script
-                cache_manager.cache_json(cache_key, "complete_script", script.model_dump())
-                
-                if self.callback:
-                    self.callback.on_step_complete(StepType.SCRIPT_GENERATION, "Script generation completed successfully")
-                
-                return script
-                
-            except Exception as e:
-                error = f"Failed to parse results: {str(e)}"
-                if self.callback:
-                    self.callback.on_error(StepType.SCRIPT_GENERATION, error)
-                raise RuntimeError(error)
-                
+                            reference=Reference(
+                                audio_path=None,  # Will be set during voice configuration
+                                text=segment.get("reference_text", "")
+                            ) if segment.get("reference_text") else None
+                        ),
+                        text=segment["text"],
+                        duration=None,  # Will be set during audio generation
+                        audio_path=None  # Will be set during audio generation
+                    )
+                    for segment in optimized["segments"]
+                ],
+                settings={
+                    "format": config.podcast_preset,
+                    "target_audience": config.target_audience,
+                    "expertise_level": config.expertise_level,
+                    "voice_guidance": voice_guidance,
+                    "quality_metrics": reviewed.get("quality_metrics", {}),
+                    "improvements": reviewed.get("improvements", []),
+                    "recommendations": reviewed.get("recommendations", {})
+                }
+            )
+            
+            # Cache the complete script
+            cache_manager.cache_json(cache_key, "complete_script", script.model_dump())
+            
+            if self.callback:
+                self.callback.on_step_complete(StepType.SCRIPT_GENERATION, "Script generation completed successfully")
+            
+            return script
+            
         except Exception as e:
             error = f"Script generation failed: {str(e)}"
             if self.callback:

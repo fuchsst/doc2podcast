@@ -37,12 +37,8 @@ def init_session_state():
         st.session_state.voice_settings = None
     if "generated_audio" not in st.session_state:
         st.session_state.generated_audio = None
-    if "progress_placeholder" not in st.session_state:
-        st.session_state.progress_placeholder = None
     if "status_placeholder" not in st.session_state:
-        st.session_state.status_placeholder = None
-    if "substeps_placeholder" not in st.session_state:
-        st.session_state.substeps_placeholder = None
+        st.session_state.status_placeholder = st.sidebar.empty()
 
 # Cache resource instances
 @st.cache_resource
@@ -166,28 +162,15 @@ def get_processing_config(config_manager: ConfigurationManager):
 def handle_progress_update(update: ProgressUpdate):
     """Handle progress updates from the pipeline"""
     try:
-        if st.session_state.progress_placeholder:
-            # Update progress bar
-            st.session_state.progress_placeholder.progress(update.progress / 100)
-            
-            # Update status message
-            st.session_state.status_placeholder.write(f"**{update.step.value}**: {update.message}")
-            
-            # Update processing status for sidebar display
-            st.session_state.processing_status = {
-                "current_step": update.step.value,
-                "progress": update.progress,
-                "message": update.message,
-                "error": update.error
-            }
-            
-            # Show substeps if available
-            if update.substeps:
-                status_tracker.render_substeps(update.substeps)
-                    
-            # Show error if present
-            if update.error:
-                st.error(f"Error: {update.error}")
+        # Store status for state management
+        st.session_state.processing_status = {
+            "current_step": update.step.value,
+            "progress": update.progress,
+            "message": update.message,
+            "substeps": update.substeps,
+            "error": update.error
+        }
+        
     except Exception as e:
         st.error(f"Error updating progress: {str(e)}")
 
@@ -212,8 +195,9 @@ def document_upload_step():
         
         if st.button("Process Document"):
             try:
-                # Reset processed content
+                # Reset processed content and substeps
                 st.session_state.processed_content = None
+                st.session_state.current_substeps = []
                 
                 # Create progress placeholders
                 st.session_state.progress_placeholder = st.progress(0)
@@ -292,92 +276,116 @@ def render_script_output(script_data):
     if not script_data:
         return
         
-    # Handle both dict and PodcastScript objects
-    if isinstance(script_data, PodcastScript):
-        # Content Strategy
-        if hasattr(script_data, 'content_strategy'):
-            wizard_ui.render_content_strategy(script_data.content_strategy)
+    # Content Strategy
+    if "content_strategy" in script_data:
+        st.markdown("### Content Strategy")
+        strategy = script_data["content_strategy"]
+        
+        with st.expander("Episode Outline", expanded=True):
+            outline = strategy["outline"]
+            st.markdown(f"**Introduction**\n{outline['introduction']}")
+            
+            for i, segment in enumerate(outline['main_segments'], 1):
+                st.markdown(f"**{i}. {segment['title']}**\n{segment['description']}")
+            
+            st.markdown(f"**Conclusion**\n{outline['conclusion']}")
+        
+        with st.expander("Key Points & Adaptations"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Key Points**")
+                for point in strategy["key_points"]:
+                    st.markdown(f"- {point}")
+            
+            with col2:
+                st.markdown("**Audience Adaptations**")
+                adaptations = strategy["audience_adaptations"]
+                for key, value in adaptations.items():
+                    st.markdown(f"**{key}:** {value}")
+                
+    # Script Preview
+    if "segments" in script_data:
+        st.markdown("### Script Preview")
+        for i, segment in enumerate(script_data["segments"]):
+            with st.expander(f"Segment {i+1}: {segment['speaker']['name']}", expanded=i==0):
+                # Show transitions if available
+                if "transitions" in segment:
+                    st.markdown("**Transitions**")
+                    cols = st.columns(2)
+                    if segment["transitions"].get("prev"):
+                        cols[0].markdown(f"*From previous:* {segment['transitions']['prev']}")
+                    if segment["transitions"].get("next"):
+                        cols[1].markdown(f"*To next:* {segment['transitions']['next']}")
+                
+                # Main content
+                st.markdown("**Content**")
+                st.text_area(
+                    "",
+                    segment["text"],
+                    height=150,
+                    key=f"segment_{i}",
+                    disabled=True
+                )
+                
+                # Technical terms if available
+                if "technical_terms" in segment and segment["technical_terms"]:
+                    st.markdown("**Technical Terms**")
+                    for term in segment["technical_terms"]:
+                        st.markdown(f"- **{term['term']}:** {term['definition']}")
+                
+                # Voice parameters if available
+                if "voice_parameters" in segment["speaker"]:
+                    st.markdown("**Voice Parameters**")
+                    params = segment["speaker"]["voice_parameters"]
+                    cols = st.columns(5)
                     
-        # Script Preview
-        if hasattr(script_data, 'segments'):
-            st.markdown("### Script Preview")
-            for i, segment in enumerate(script_data.segments):
-                with st.expander(f"Segment {i+1}: {segment.speaker.name}", expanded=i==0):
-                    st.text_area(
-                        "Content",
-                        segment.text,
-                        height=150,
-                        key=f"segment_{i}",
-                        disabled=True
-                    )
-                    
-                    # Show voice parameters
-                    if hasattr(segment.speaker, "voice_parameters"):
-                        params = segment.speaker.voice_parameters
-                        cols = st.columns(5)
-                        
-                        cols[0].metric("Pace", f"{params.pace:.1f}x")
-                        cols[1].metric("Pitch", f"{params.pitch:.1f}")
-                        cols[2].metric("Energy", f"{params.energy:.1f}")
-                        cols[3].metric("Variation", f"{params.variation:.1f}")
-                        cols[4].markdown(f"**Emotion:** {params.emotion}")
-                        
-                    # Show voice settings
-                    if hasattr(segment.speaker, "voice_model"):
-                        st.markdown(f"""
-                        **Voice Settings:**
-                        - Model: {segment.speaker.voice_model}
-                        - Preset: {segment.speaker.voice_preset or 'default'}
-                        - Style Tags: {', '.join(segment.speaker.style_tags)}
-                        """)
-                    
-        # Quality Review
-        if hasattr(script_data, 'quality_review'):
-            wizard_ui.render_quality_review(script_data.quality_review)
-    else:
-        # Handle dict format
-        # Content Strategy
-        if "content_strategy" in script_data:
-            wizard_ui.render_content_strategy(script_data["content_strategy"])
-                    
-        # Script Preview
-        if "segments" in script_data:
-            st.markdown("### Script Preview")
-            for i, segment in enumerate(script_data["segments"]):
-                with st.expander(f"Segment {i+1}: {segment['speaker']['name']}", expanded=i==0):
-                    st.text_area(
-                        "Content",
-                        segment["text"],
-                        height=150,
-                        key=f"segment_{i}",
-                        disabled=True
-                    )
-                    
-                    # Show voice parameters if available
-                    if "voice_parameters" in segment["speaker"]:
-                        params = segment["speaker"]["voice_parameters"]
-                        cols = st.columns(5)
-                        
-                        cols[0].metric("Pace", f"{params.get('pace', 1.0):.1f}x")
-                        cols[1].metric("Pitch", f"{params.get('pitch', 1.0):.1f}")
-                        cols[2].metric("Energy", f"{params.get('energy', 0.5):.1f}")
-                        cols[3].metric("Variation", f"{params.get('variation', 0.5):.1f}")
-                        cols[4].markdown(f"**Emotion:** {params.get('emotion', 'neutral')}")
-                    
-        # Quality Review
-        if "quality_review" in script_data:
-            wizard_ui.render_quality_review(script_data["quality_review"])
+                    cols[0].metric("Pace", f"{params.get('pace', 1.0):.1f}x")
+                    cols[1].metric("Pitch", f"{params.get('pitch', 1.0):.1f}")
+                    cols[2].metric("Energy", f"{params.get('energy', 0.5):.1f}")
+                    cols[3].metric("Variation", f"{params.get('variation', 0.5):.1f}")
+                    cols[4].markdown(f"**Emotion:** {params.get('emotion', 'neutral')}")
+    
+    # Quality Review
+    if "quality_review" in script_data:
+        st.markdown("### Quality Review")
+        review = script_data["quality_review"]
+        
+        # Metrics visualization
+        st.markdown("**Quality Metrics**")
+        metrics = review["quality_metrics"]
+        cols = st.columns(5)
+        
+        cols[0].metric("Content", f"{metrics['content_accuracy']:.0%}")
+        cols[1].metric("Flow", f"{metrics['conversation_flow']:.0%}")
+        cols[2].metric("Audience Fit", f"{metrics['audience_fit']:.0%}")
+        cols[3].metric("Technical", f"{metrics['technical_accuracy']:.0%}")
+        cols[4].metric("Engagement", f"{metrics['engagement']:.0%}")
+        
+        # Improvements and recommendations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Suggested Improvements**")
+            for imp in review["improvements"]:
+                st.markdown(f"- **{imp['type']}:** {imp['description']}")
+        
+        with col2:
+            st.markdown("**Recommendations**")
+            recs = review["recommendations"]
+            st.markdown("*Content:*")
+            for rec in recs["content"]:
+                st.markdown(f"- {rec}")
+            st.markdown("*Delivery:*")
+            for rec in recs["delivery"]:
+                st.markdown(f"- {rec}")
 
 def script_generation_step():
     """Step 2: Script Generation with Presets"""
+    st.markdown("## Script Generation")
 
     if not st.session_state.processed_content:
         st.warning("Please upload and process a document first")
         return
-
-    # Show analysis results if available
-    if "analysis" in st.session_state.processed_content:
-        render_analysis_results(st.session_state.processed_content["analysis"])
 
     prompt_manager = PromptManager(settings=Settings())
     
@@ -427,92 +435,56 @@ def script_generation_step():
                 help="Provide any specific instructions or focus areas for the podcast"
             )
             
-            # Show format preview
-            with st.expander("Format Details"):
-                # Show roles
-                st.subheader("Roles")
-                for role_name, role in format_config.roles.items():
-                    st.markdown(f"**{role_name}**: {role.objective}")
-                
-                # Show structure
-                st.subheader("Structure")
-                st.markdown("**Introduction**")
-                st.code(format_config.structure.introduction.template)
-                
-                st.markdown("**Main Discussion**")
-                for segment in format_config.structure.main_discussion["segments"]:
-                    st.markdown(f"- {segment}")
-                
-                st.markdown("**Conclusion**")
-                st.code(format_config.structure.conclusion.template)
-            
             if st.button("Generate Script"):
                 try:
-                    # Create containers for progress and script
-                    progress_container = st.container()
-                    script_container = st.container()
+                    # Reset substeps
+                    st.session_state.current_substeps = []
                     
-                    # Initialize progress tracking
-                    with progress_container:
-                        st.session_state.progress_placeholder = st.progress(0)
-                        st.session_state.status_placeholder = st.empty()
-                        st.session_state.substeps_placeholder = st.empty()
-                        
-                        # Show initial substeps
-                        status_tracker.render_substeps([
-                            {"name": "Content Strategy", "status": "in_progress"},
-                            {"name": "Script Writing", "status": "pending"},
-                            {"name": "Voice Optimization", "status": "pending"},
-                            {"name": "Quality Review", "status": "pending"}
-                        ])
+                    # Create script generation config
+                    script_config = ScriptGenerationConfig(
+                        podcast_preset=format_type,
+                        target_audience=target_audience,
+                        expertise_level=expertise_level,
+                        guidance_prompt=guidance_prompt if guidance_prompt else None
+                    )
                     
-                    with st.spinner("Generating script..."):
-                        # Create script generation config
-                        script_config = ScriptGenerationConfig(
-                            podcast_preset=format_type,
-                            target_audience=target_audience,
-                            expertise_level=expertise_level,
-                            guidance_prompt=guidance_prompt if guidance_prompt else None
-                        )
-                        
-                        # Generate script
-                        script_generator = get_script_generator()
-                        script = script_generator.generate_script(
-                            st.session_state.processed_content,
-                            script_config
-                        )
-                        
-                        # Store the script
-                        st.session_state.current_script = script
-                        
-                        with script_container:
-                            # Show script preview
-                            st.subheader("Generated Script")
-                            
-                            # Show content strategy
-                            if hasattr(script, 'content_strategy'):
-                                wizard_ui.render_content_strategy(script.content_strategy)
-                            
-                            # Show script segments
-                            render_script_output(script)
-                            
-                            # Show quality review
-                            if hasattr(script, 'quality_review'):
-                                wizard_ui.render_quality_review(script.quality_review)
-                            
-                            # Store script settings
-                            st.session_state.script_settings = {
-                                "format_type": format_type,
-                                "format_config": format_config.dict(),
-                                "target_audience": target_audience,
-                                "expertise_level": expertise_level,
-                                "guidance_prompt": guidance_prompt
-                            }
-                            
-                            st.success("Script generated successfully!")
-                        
-                        # Clear progress display
-                        progress_container.empty()
+                    # Initialize pipeline
+                    pipeline = get_pipeline(get_config_manager().get_processing_config())
+                    
+                    # Step 1: Generate content strategy
+                    strategy = pipeline.generate_content_strategy(
+                        st.session_state.processed_content,
+                        config=script_config
+                    )
+                    
+                    # Step 2: Write script
+                    script = pipeline.write_script(
+                        st.session_state.processed_content,
+                        strategy,
+                        config=script_config
+                    )
+                    
+                    # Step 3: Review script quality
+                    reviewed_script = pipeline.review_script_quality(
+                        script,
+                        config=script_config
+                    )
+                    
+                    # Store the script and settings
+                    st.session_state.current_script = reviewed_script
+                    st.session_state.script_settings = {
+                        "format_type": format_type,
+                        "format_config": format_config.model_dump(),
+                        "target_audience": target_audience,
+                        "expertise_level": expertise_level,
+                        "guidance_prompt": guidance_prompt
+                    }
+                    
+                    # Show script preview
+                    st.subheader("Generated Script")
+                    render_script_output(reviewed_script)
+                    
+                    st.success("Script generated successfully!")
                     
                 except Exception as e:
                     error_details = traceback.format_exc()
@@ -530,6 +502,7 @@ def script_generation_step():
 
 def voice_settings_step():
     """Step 3: Voice Settings Configuration"""
+    st.markdown("## Voice Settings")
     
     if not st.session_state.script_settings or not st.session_state.current_script:
         st.warning("Please generate a script first")
@@ -541,8 +514,10 @@ def voice_settings_step():
         # Get voice categories from speakers config
         voices = prompt_manager.speakers_config["voices"]
         
-        # Use the stored script from script generation step
+        # Use the stored script
         script = st.session_state.current_script
+        
+        voice_settings = []
         
         for i, segment in enumerate(script.segments):
             with st.expander(f"Settings for {segment.speaker}", expanded=i==0):
@@ -583,44 +558,53 @@ def voice_settings_step():
                         key=f"energy_{i}"
                     )
                 
-                # Show segment text
-                st.text_area(
-                    "Segment Text",
-                    segment.text,
-                    height=100,
-                    key=f"text_{i}",
-                    disabled=True
-                )
-                
-                if voice_name:
-                    # Get and show voice profile
-                    profile_type = "technical" if category == "professional" else "casual"
-                    voice_profile = prompt_manager.get_voice_profile(
-                        category,
-                        voice_name,
-                        profile_type
-                    )
-                    
-                    wizard_ui.show_settings_preview(
-                        "Voice Profile",
-                        voice_profile
-                    )
+                voice_settings.append({
+                    "segment_id": i,
+                    "category": category,
+                    "voice": voice_name if 'voice_name' in locals() else None,
+                    "pace": pace,
+                    "energy": energy
+                })
         
         if st.button("Apply Voice Settings"):
-            # Store voice settings
-            st.session_state.voice_settings = {
-                "segments": [{
-                    "speaker": segment.speaker,
-                    "voice": st.session_state[f"voice_{i}"],
-                    "pace": st.session_state[f"pace_{i}"],
-                    "energy": st.session_state[f"energy_{i}"]
-                } for i, segment in enumerate(script.segments)]
-            }
+            try:
+                # Reset substeps
+                st.session_state.current_substeps = []
+                
+                # Store voice settings
+                st.session_state.voice_settings = voice_settings
+                
+                # Initialize progress tracking in sidebar
+                with st.sidebar:
+                    st.markdown("### Voice Settings Progress")
+                    status_tracker.render_substeps([
+                        {"name": "Voice Optimization", "status": "in_progress"}
+                    ])
+                
+                # Optimize voice settings
+                pipeline = get_pipeline(get_config_manager().get_processing_config())
+                optimized_script = pipeline.optimize_voice_settings(
+                    st.session_state.current_script,
+                    {"segments": voice_settings}
+                )
+                
+                # Store optimized script
+                st.session_state.optimized_script = optimized_script
+                
+                st.success("Voice settings applied successfully!")
+                
+            except Exception as e:
+                error_details = traceback.format_exc()
+                wizard_ui.show_error(
+                    "Failed to apply voice settings",
+                    error_details
+                )
                     
     except Exception as e:
+        error_details = traceback.format_exc()
         wizard_ui.show_error(
             "Failed to load voice configuration",
-            traceback.format_exc()
+            error_details
         )
 
 def audio_generation_step():
@@ -639,6 +623,9 @@ def audio_generation_step():
         )
         
         if st.button("Generate Audio"):
+            # Reset substeps
+            st.session_state.current_substeps = []
+            
             # Create progress placeholders
             st.session_state.progress_placeholder = st.progress(0)
             st.session_state.status_placeholder = st.empty()
@@ -699,7 +686,15 @@ def main():
     
     # Show status tracker in sidebar
     if st.session_state.processing_status:
-        status_tracker.render_status(st.session_state.processing_status, sidebar=True)
+        # Show current status in placeholder
+        st.session_state.status_placeholder.empty()  # Clear previous content
+        with st.session_state.status_placeholder:
+            status_tracker.render_status(st.session_state.processing_status, sidebar=True)
+        
+        # Show substeps directly (not in placeholder)
+        if st.session_state.processing_status.get("substeps"):
+            with st.sidebar:
+                status_tracker.render_substeps(st.session_state.processing_status["substeps"])
 
 if __name__ == "__main__":
     main()

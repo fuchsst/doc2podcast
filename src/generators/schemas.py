@@ -1,44 +1,86 @@
-"""JSON schemas for script generation"""
+"""Schemas for script generation results"""
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel
 
-from typing import Dict, Any, List, TypedDict, Optional
+class OutlineSegment(BaseModel):
+    """Schema for outline segment"""
+    title: str
+    description: str
 
-class ContentStrategySchema(TypedDict):
-    """Schema for content strategy"""
-    episode_structure: Dict[str, Any]
-    key_points: List[Dict[str, str]]
-    transitions: List[Dict[str, str]]
-    audience_adaptation: Dict[str, Any]
-    technical_depth: Dict[str, Any]
+class OutlineSchema(BaseModel):
+    """Schema for outline structure"""
+    introduction: str
+    main_segments: List[OutlineSegment]
+    conclusion: str
 
-class ScriptSegmentSchema(TypedDict):
+class ContentStrategySchema(BaseModel):
+    """Schema for content strategy results"""
+    outline: OutlineSchema
+    key_points: List[str]
+    transitions: List[str]
+    audience_adaptations: Dict[str, Any]
+    metadata: Dict[str, str]
+
+class TechnicalTerm(BaseModel):
+    """Schema for technical terms"""
+    term: str
+    definition: str
+
+class Transitions(BaseModel):
+    """Schema for segment transitions"""
+    next: str
+    prev: str
+
+class ScriptSegment(BaseModel):
     """Schema for script segment"""
     speaker: str
     text: str
     style: str
-    transitions: Dict[str, str]
-    technical_terms: List[Dict[str, str]]
+    transitions: Transitions
+    technical_terms: List[TechnicalTerm]
 
-class ScriptSchema(TypedDict):
-    """Schema for complete script"""
-    segments: List[ScriptSegmentSchema]
-    speakers: List[Dict[str, Any]]
-    metadata: Dict[str, Any]
-    settings: Dict[str, Any]
+class Speaker(BaseModel):
+    """Schema for speaker information"""
+    name: str
+    role: str
 
-class VoiceGuidanceSchema(TypedDict):
+class ScriptMetadata(BaseModel):
+    """Schema for script metadata"""
+    title: str
+    description: str
+    tags: List[str]
+
+class ScriptSettings(BaseModel):
+    """Schema for script settings"""
+    format: str
+    style: str
+
+class ScriptSchema(BaseModel):
+    """Schema for script results"""
+    segments: List[ScriptSegment]
+    speakers: List[Speaker]
+    metadata: ScriptMetadata
+    settings: ScriptSettings
+
+class VoiceGuidance(BaseModel):
     """Schema for voice guidance"""
     pronunciation: Dict[str, str]
     emphasis: List[Dict[str, Any]]
     pacing: Dict[str, float]
     emotions: Dict[str, str]
 
-class OptimizedScriptSchema(TypedDict):
-    """Schema for voice-optimized script"""
-    segments: List[ScriptSegmentSchema]
-    voice_guidance: VoiceGuidanceSchema
-    timing: Dict[str, Any]
+class Timing(BaseModel):
+    """Schema for timing information"""
+    total_duration: float
+    segment_durations: Dict[str, float]
 
-class QualityMetricsSchema(TypedDict):
+class OptimizedScriptSchema(BaseModel):
+    """Schema for voice-optimized script"""
+    segments: List[ScriptSegment]
+    voice_guidance: VoiceGuidance
+    timing: Timing
+
+class QualityMetrics(BaseModel):
     """Schema for quality metrics"""
     content_accuracy: float
     conversation_flow: float
@@ -46,15 +88,24 @@ class QualityMetricsSchema(TypedDict):
     technical_accuracy: float
     engagement: float
 
-class QualityReviewSchema(TypedDict):
-    """Schema for quality review"""
-    final_script: ScriptSchema
-    quality_metrics: QualityMetricsSchema
-    improvements: List[Dict[str, str]]
-    recommendations: Dict[str, Any]
+class Improvement(BaseModel):
+    """Schema for improvement suggestions"""
+    type: str
+    description: str
 
-class ConsolidatedScriptSchema(TypedDict):
-    """Schema for consolidated script results"""
+class Recommendations(BaseModel):
+    """Schema for recommendations"""
+    content: List[str]
+    delivery: List[str]
+
+class QualityReviewSchema(BaseModel):
+    """Schema for quality review results"""
+    quality_metrics: QualityMetrics
+    improvements: List[Improvement]
+    recommendations: Recommendations
+
+class ConsolidatedScriptSchema(BaseModel):
+    """Schema for consolidated script generation results"""
     content_strategy: ContentStrategySchema
     initial_script: ScriptSchema
     optimized_script: OptimizedScriptSchema

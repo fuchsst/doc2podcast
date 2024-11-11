@@ -35,12 +35,14 @@ class Generator(ABC):
 class ScriptGenerator(Generator):
     """Base script generator class"""
     @abstractmethod
-    def generate_script(self, content: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def generate(self, content: Dict[str, Any], *args, **kwargs) -> Dict[str, Any]:
         """Generate script from content
         
         Args:
             content: Content to generate script from
-            settings: Optional settings override
+            *args: Additional positional arguments
+            **kwargs: Additional keyword arguments including:
+                - config: Optional script generation configuration
             
         Returns:
             Generated script data

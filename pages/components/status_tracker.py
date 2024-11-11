@@ -16,11 +16,9 @@ def render_status(status: Dict[str, Any], sidebar: bool = False):
     container = st.sidebar if sidebar else st
     
     with container:
-        st.markdown("### Current Status")
-        
         # Show current step and progress
         if status.get("current_step"):
-            st.markdown(f"**Step:** {status['current_step']}")
+            st.markdown(f"### Current Status\n**Step:** {status['current_step']}")
             
         if status.get("progress") is not None:
             st.progress(status["progress"] / 100)
@@ -43,15 +41,15 @@ def render_substeps(substeps: List[Dict[str, Any]], expanded: bool = True):
             - message (Optional[str]): Additional message
         expanded (bool): Whether to show expanded by default
     """
-    with st.expander("Substeps Progress", expanded=expanded):
-        for step in substeps:
-            # Show step name with status icon
-            status_icon = "✅" if step["status"] == "completed" else "🔄"
-            st.markdown(f"{status_icon} **{step['name']}**")
-            
-            # Show message if present
-            if step.get("message"):
-                st.markdown(f"_{step['message']}_")
+    st.markdown("### Progress Steps")
+    for step in substeps:
+        # Show step name with status icon
+        status_icon = "✅" if step["status"] == "complete" else "⏳" if step["status"] == "in_progress" else "⏸️"
+        st.markdown(f"{status_icon} **{step['name']}**")
+        
+        # Show message if present
+        if step.get("message"):
+            st.markdown(f"_{step['message']}_")
 
 def render_script_progress(
     current_segment: int,
