@@ -1,7 +1,8 @@
 """Text processing utilities"""
 
+import json
 import re
-from typing import List, Dict, Tuple
+from typing import Any, List, Dict, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
@@ -101,3 +102,86 @@ def extract_key_points(text: str, max_points: int = 5) -> List[str]:
     # Get top scoring sentences
     top_points = sorted(scores, reverse=True)[:max_points]
     return [point[1].strip() for point in top_points]
+
+def clean_json_output(output: str) -> str:
+    """Clean and validate JSON output string"""
+    # Convert to string if needed
+    if not isinstance(output, str):
+        output = str(output)
+    
+    # Find the first { and last } to extract the main JSON object
+    start = output.find('{')
+    end = output.rfind('}') + 1
+    if start >= 0 and end > 0:
+        output = output[start:end]
+    
+    # Handle line breaks within strings
+    in_string = False
+    cleaned = []
+    i = 0
+    while i < len(output):
+        char = output[i]
+        
+        if char == '"' and (i == 0 or output[i-1] != '\\'):
+            in_string = not in_string
+            cleaned.append(char)
+        elif in_string and char in '\n\r':
+            # Replace line breaks in strings with space
+            cleaned.append(' ')
+        else:
+            cleaned.append(char)
+        i += 1
+    
+    output = ''.join(cleaned)
+    
+    # Fix common JSON formatting issues
+    output = re.sub(r'(?<!\\)"(\w+)":', r'"\1":', output)  # Fix unquoted keys
+    output = re.sub(r'\'', '"', output)  # Replace single quotes with double quotes
+    output = re.sub(r',(\s*[}\]])', r'\1', output)  # Remove trailing commas
+    
+    # Handle truncated strings by attempting to complete them
+    if output.count('{') > output.count('}'):
+        output += '}' * (output.count('{') - output.count('}'))
+    if output.count('[') > output.count(']'):
+        output += ']' * (output.count('[') - output.count(']'))
+    
+    # Ensure proper string value formatting
+    output = re.sub(r':\s*([^"{}\[\],\s][^{}\[\],\s]*?)([,}\]])', r': "\1"\2', output)
+    
+    # Remove any remaining whitespace between values
+    output = re.sub(r'\s+', ' ', output)
+    
+    return output.strip()
+
+def parse_json_safely(json_str: str) -> Dict[str, Any]:
+    """Safely parse JSON with enhanced error handling"""
+    try:
+        # First attempt: Parse the cleaned JSON directly
+        cleaned_json = clean_json_output(json_str)
+        try:
+            return json.loads(cleaned_json)
+        except json.JSONDecodeError as e:
+            # If first attempt fails, try more aggressive cleaning
+            fixed_json = re.sub(r':\s*([^"{}\[\],\s][^{}\[\],\s]*)', r': "\1"', cleaned_json)
+            fixed_json = re.sub(r',(\s*[}\]])', r'\1', fixed_json)
+            
+            try:
+                return json.loads(fixed_json)
+            except json.JSONDecodeError:
+                # If still failing, try to extract just the essential structure
+                match = re.search(r'\{.*\}', cleaned_json, re.DOTALL)
+                if match:
+                    minimal_json = match.group(0)
+                    try:
+                        return json.loads(minimal_json)
+                    except json.JSONDecodeError as e:
+                        # One final attempt - try to fix any remaining issues
+                        final_attempt = re.sub(r'([^\\])"([^"]*?)\n([^"]*?)"', r'\1"\2 \3"', minimal_json)
+                        try:
+                            return json.loads(final_attempt)
+                        except:
+                            raise ValueError(f"Failed to parse JSON after multiple attempts. Original error: {str(e)}\nOutput was: {json_str[:200]}...")
+                raise ValueError(f"Failed to parse JSON: {str(e)}\nOutput was: {json_str[:200]}...")
+                
+    except Exception as e:
+        raise ValueError(f"Failed to parse JSON: {str(e)}\nOutput was: {json_str[:200]}...")

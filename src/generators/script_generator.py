@@ -1,11 +1,6 @@
 """Script generation module using CrewAI agents"""
-import datetime
-import json
-import re
-from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
-from crewai import Agent, Task, Crew, Process
 
 from ..config import PromptManager, Settings
 from ..models.podcast_script import (
@@ -19,20 +14,11 @@ from ..models.podcast_script import (
 from ..utils.callback_handler import PipelineCallback, StepType, ProgressUpdate
 from ..utils.cache_manager import cache_manager
 from .base import ScriptContext, ScriptGenerator, ResultsFormatter
-from .script_generation_tools import (
-    ContentStrategyTool,
-    ScriptWritingTool,
-    VoiceOptimizationTool,
-    QualityControlTool,
-    parse_json_safely
-)
-from .schemas import (
-    ConsolidatedScriptSchema,
-    ContentStrategySchema,
-    ScriptSchema,
-    OptimizedScriptSchema,
-    QualityReviewSchema
-)
+from .content_strategy_tool import ContentStrategyTool
+from .script_writing_tool import ScriptWritingTool
+from .voice_optimization_tool import VoiceOptimizationTool
+from .quality_control_tool import QualityControlTool
+
 
 @dataclass
 class ScriptGenerationConfig:
