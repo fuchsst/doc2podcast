@@ -4,7 +4,11 @@ from typing import Dict, Any, List, Optional
 import json
 from pydantic import BaseModel, Field
 
-class ScriptContext:
+class ToolContext:
+    """Base context for tools"""
+    pass
+
+class ScriptContext(ToolContext):
     """Context for script generation"""
     def __init__(
         self,

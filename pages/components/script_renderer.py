@@ -61,11 +61,12 @@ def render_script_output(script_data):
                 st.markdown("**Content**")
                 text_content = segment.get('text') if isinstance(segment, dict) else str(segment)
                 st.text_area(
-                    "",
+                    "Segment Content",  # Added proper label
                     text_content,
                     height=150,
                     key=f"segment_{i}",
-                    disabled=True
+                    disabled=True,
+                    label_visibility="hidden"  # Hide label since we show "Content" in markdown
                 )
                 
                 # Technical terms if available

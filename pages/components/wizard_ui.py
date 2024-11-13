@@ -117,13 +117,14 @@ def render_script_preview(script: Dict[str, Any]):
                 f"Segment {i+1}: {segment['speaker'].name}",
                 expanded=i==0
             ):
-                # Show segment text
+                # Show segment text with explicit label visibility
                 st.text_area(
                     "Content",
                     segment["text"],
                     height=150,
                     key=f"segment_{i}",
-                    disabled=True
+                    disabled=True,
+                    label_visibility="visible"  # Explicitly set label visibility
                 )
                 
                 # Show voice parameters
